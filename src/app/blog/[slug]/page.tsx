@@ -25,6 +25,7 @@ export async function generateMetadata({ params }: BlogPostParams): Promise<Meta
       },
     };
   } catch (error) {
+    console.error(`Error generating metadata for ${slug}:`, error);
     return {
       title: 'Blog Post Not Found | AI & Family',
       description: 'The requested blog post could not be found.',
@@ -44,6 +45,7 @@ export default async function BlogPost({ params }: BlogPostParams) {
     const post = await getPostData(slug);
     return <PostContent post={post} />;
   } catch (error) {
+    console.error(`Error loading post ${slug}:`, error);
     notFound();
   }
 } 
