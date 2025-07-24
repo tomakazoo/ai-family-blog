@@ -9,7 +9,8 @@ interface BlogPostParams {
   };
 }
 
-export async function generateMetadata({ params }: BlogPostParams): Promise<Metadata> {
+export async function generateMetadata(props: any): Promise<Metadata> {
+  const { params } = await props;
   const { slug } = params;
   
   try {
@@ -38,7 +39,8 @@ export async function generateStaticParams() {
   return paths;
 }
 
-export default async function BlogPost({ params }: BlogPostParams) {
+export default async function BlogPost(props: any) {
+  const { params } = await props;
   const { slug } = params;
   
   try {
