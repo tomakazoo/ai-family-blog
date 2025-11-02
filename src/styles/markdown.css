@@ -1,0 +1,432 @@
+/* GitHub-style markdown preview - same as VS Code/Cursor */
+.markdown-body {
+  color: #24292e;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+.dark .markdown-body {
+  color: #c9d1d9;
+}
+
+.markdown-body h1 {
+  font-size: 2em;
+  font-weight: 600;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #eaecef;
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+
+.dark .markdown-body h1 {
+  border-bottom-color: #30363d;
+}
+
+.markdown-body h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #eaecef;
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+
+.dark .markdown-body h2 {
+  border-bottom-color: #30363d;
+}
+
+.markdown-body h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+
+.markdown-body h4 {
+  font-size: 1em;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+
+.markdown-body p {
+  margin-bottom: 16px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.5em;
+  margin-bottom: 16px;
+  margin-top: 8px;
+}
+
+.markdown-body ul {
+  list-style-type: none;
+  position: relative;
+}
+
+.markdown-body ul > li {
+  position: relative;
+  padding-left: 1.5em;
+  margin-bottom: 0.75em;
+  line-height: 1.7;
+}
+
+.markdown-body ul > li::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  color: #0366d6;
+  font-weight: bold;
+  font-size: 1.1em;
+}
+
+.dark .markdown-body ul > li::before {
+  color: #58a6ff;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+  padding-left: 2em;
+}
+
+.markdown-body ol > li {
+  margin-bottom: 0.75em;
+  line-height: 1.7;
+  padding-left: 0.5em;
+}
+
+/* Nested lists */
+.markdown-body ul ul,
+.markdown-body ol ol,
+.markdown-body ul ol,
+.markdown-body ol ul {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.markdown-body ul ul > li::before {
+  content: "▪";
+  color: #6a737d;
+  font-size: 0.9em;
+}
+
+.dark .markdown-body ul ul > li::before {
+  color: #8b949e;
+}
+
+/* Better spacing for list items with multiple paragraphs */
+.markdown-body li > p {
+  margin-top: 0;
+  margin-bottom: 0.5em;
+}
+
+.markdown-body li > p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  background-color: rgba(27, 31, 35, 0.05);
+  border-radius: 3px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.dark .markdown-body code {
+  background-color: rgba(110, 118, 129, 0.4);
+}
+
+.markdown-body pre {
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  background-color: #f6f8fa;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.dark .markdown-body pre {
+  background-color: #161b22;
+}
+
+.markdown-body pre code {
+  display: block;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  line-height: 1.45;
+  word-wrap: normal;
+  background-color: transparent;
+  border: 0;
+  color: #24292e;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.dark .markdown-body pre code {
+  color: #e1e4e8;
+}
+
+/* Syntax highlighting - GitHub theme */
+.markdown-body .hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0;
+  background: transparent;
+  color: #24292e;
+}
+
+.dark .markdown-body .hljs {
+  background: transparent;
+  color: #e1e4e8;
+}
+
+/* Python and general syntax highlighting */
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.dark .markdown-body .hljs-comment,
+.dark .markdown-body .hljs-quote {
+  color: #8b949e;
+}
+
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-type {
+  color: #d73a49;
+}
+
+.dark .markdown-body .hljs-keyword,
+.dark .markdown-body .hljs-selector-tag,
+.dark .markdown-body .hljs-type {
+  color: #ff7b72;
+}
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-number {
+  color: #032f62;
+}
+
+.dark .markdown-body .hljs-string,
+.dark .markdown-body .hljs-literal,
+.dark .markdown-body .hljs-number {
+  color: #a5d6ff;
+}
+
+.markdown-body .hljs-title,
+.markdown-body .hljs-name,
+.markdown-body .hljs-function {
+  color: #6f42c1;
+}
+
+.dark .markdown-body .hljs-title,
+.dark .markdown-body .hljs-name,
+.dark .markdown-body .hljs-function {
+  color: #d2a8ff;
+}
+
+.markdown-body .hljs-variable,
+.markdown-body .hljs-template-variable,
+.markdown-body .hljs-attr {
+  color: #e36209;
+}
+
+.dark .markdown-body .hljs-variable,
+.dark .markdown-body .hljs-template-variable,
+.dark .markdown-body .hljs-attr {
+  color: #ffa657;
+}
+
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-builtin-name {
+  color: #005cc5;
+}
+
+.dark .markdown-body .hljs-built_in,
+.dark .markdown-body .hljs-builtin-name {
+  color: #79c0ff;
+}
+
+.markdown-body .hljs-operator {
+  color: #d73a49;
+}
+
+.dark .markdown-body .hljs-operator {
+  color: #ff7b72;
+}
+
+.markdown-body .hljs-punctuation {
+  color: #24292e;
+}
+
+.dark .markdown-body .hljs-punctuation {
+  color: #e1e4e8;
+}
+
+/* Code block enhancements */
+.markdown-body pre.hljs {
+  padding: 16px;
+  border: 1px solid #e1e4e8;
+  position: relative;
+}
+
+.dark .markdown-body pre.hljs {
+  border-color: #30363d;
+}
+
+/* Language-specific backgrounds on pre element */
+.markdown-body pre:has(code.language-python) {
+  background: linear-gradient(135deg, #e5f1ff 0%, #d0e7ff 100%);
+  border-color: #7fb3ff;
+  border-width: 2px;
+}
+
+.dark .markdown-body pre:has(code.language-python) {
+  background: linear-gradient(135deg, #1a2940 0%, #0f1f35 100%);
+  border-color: #2d5a8f;
+}
+
+.markdown-body pre:has(code.language-javascript),
+.markdown-body pre:has(code.language-js),
+.markdown-body pre:has(code.language-typescript),
+.markdown-body pre:has(code.language-ts) {
+  background: linear-gradient(135deg, #fff8d4 0%, #fff0a8 100%);
+  border-color: #ffc107;
+  border-width: 2px;
+}
+
+.dark .markdown-body pre:has(code.language-javascript),
+.dark .markdown-body pre:has(code.language-js),
+.dark .markdown-body pre:has(code.language-typescript),
+.dark .markdown-body pre:has(code.language-ts) {
+  background: linear-gradient(135deg, #3e3515 0%, #282011 100%);
+  border-color: #996600;
+}
+
+.markdown-body pre:has(code.language-json) {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-color: #66bb6a;
+  border-width: 2px;
+}
+
+.dark .markdown-body pre:has(code.language-json) {
+  background: linear-gradient(135deg, #1a351f 0%, #0f2414 100%);
+  border-color: #357a3d;
+}
+
+.markdown-body pre:has(code.language-bash),
+.markdown-body pre:has(code.language-sh),
+.markdown-body pre:has(code.language-shell) {
+  background: linear-gradient(135deg, #eeeeee 0%, #e0e0e0 100%);
+  border-color: #a0a0a0;
+  border-width: 2px;
+}
+
+.dark .markdown-body pre:has(code.language-bash),
+.dark .markdown-body pre:has(code.language-sh),
+.dark .markdown-body pre:has(code.language-shell) {
+  background: linear-gradient(135deg, #3a3a3a 0%, #2d2d2d 100%);
+  border-color: #555555;
+}
+
+/* Better code block styling */
+.markdown-body pre code.hljs {
+  padding: 0;
+  background: transparent;
+}
+
+/* Improve readability with better spacing */
+.markdown-body pre.hljs > code {
+  display: block;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.markdown-body a {
+  color: #0366d6;
+  text-decoration: none;
+}
+
+.dark .markdown-body a {
+  color: #58a6ff;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+}
+
+.markdown-body hr {
+  height: 0.25em;
+  padding: 0;
+  margin: 24px 0;
+  background-color: #e1e4e8;
+  border: 0;
+}
+
+.dark .markdown-body hr {
+  background-color: #30363d;
+}
+
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: #6a737d;
+  border-left: 0.25em solid #dfe2e5;
+  margin-bottom: 16px;
+}
+
+.dark .markdown-body blockquote {
+  color: #8b949e;
+  border-left-color: #30363d;
+}
+
+.markdown-body table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid #dfe2e5;
+}
+
+.dark .markdown-body table th,
+.dark .markdown-body table td {
+  border-color: #30363d;
+}
+
+.markdown-body table th {
+  font-weight: 600;
+  background-color: #f6f8fa;
+}
+
+.dark .markdown-body table th {
+  background-color: #161b22;
+}
+
+/* Mermaid diagram styling */
+.markdown-body .mermaid-diagram {
+  margin: 24px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.markdown-body .mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+

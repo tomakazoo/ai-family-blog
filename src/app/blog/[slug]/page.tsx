@@ -1,7 +1,8 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { getAllPostSlugs, getPostData } from '@/lib/posts';
+import { getAllPostSlugs, getPostData, getSortedPostsData } from '@/lib/posts';
 import { PostContent } from '@/components/blog/PostContent';
+import { findSeriesForPost } from '@/lib/postOrganization';
 
 interface BlogPostParams {
   params: {
@@ -10,8 +11,10 @@ interface BlogPostParams {
 }
 
 export async function generateMetadata(props: any): Promise<Metadata> {
-  const { params } = await props;
-  const { slug } = params;
+  const resolvedProps = await props;
+  const { params } = resolvedProps;
+  const resolvedParams = await params;
+  const { slug } = resolvedParams;
   
   try {
     const post = await getPostData(slug);
@@ -40,12 +43,18 @@ export async function generateStaticParams() {
 }
 
 export default async function BlogPost(props: any) {
-  const { params } = await props;
-  const { slug } = params;
+  const resolvedProps = await props;
+  const { params } = resolvedProps;
+  const resolvedParams = await params;
+  const { slug } = resolvedParams;
   
   try {
     const post = await getPostData(slug);
-    return <PostContent post={post} />;
+    // Find if this post belongs to a series
+    const allPosts = getSortedPostsData();
+    const series = findSeriesForPost(slug, allPosts);
+    
+    return <PostContent post={post} series={series || undefined} />;
   } catch (error) {
     console.error(`Error loading post ${slug}:`, error);
     notFound();

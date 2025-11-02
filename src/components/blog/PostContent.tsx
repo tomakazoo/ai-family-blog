@@ -1,28 +1,36 @@
 "use client"
 
 import Image from 'next/image';
-import { CalendarIcon, TagIcon, ClockIcon } from 'lucide-react';
 import { Post } from '@/lib/posts';
-import { useState } from 'react';
+import { PostSeries } from '@/lib/postOrganization';
+import { SeriesNavigation } from './SeriesNavigation';
+import '@/styles/markdown.css';
+import { useState, useEffect, useRef } from 'react';
+import mermaid from 'mermaid';
+
+// Initialize mermaid ONCE
+let mermaidInitialized = false;
+
+const initializeMermaid = () => {
+  if (!mermaidInitialized) {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'default',
+      securityLevel: 'loose',
+    });
+    mermaidInitialized = true;
+  }
+};
 
 interface PostContentProps {
   post: Post;
+  series?: PostSeries;
 }
 
-export function PostContent({ post }: PostContentProps) {
-  const { title, date, content, tags, coverImage } = post;
+export function PostContent({ post, series }: PostContentProps) {
+  const { content, coverImage, slug } = post;
   const [imgError, setImgError] = useState(false);
-
-  // Format the date
-  const formattedDate = new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-
-  // Estimate reading time (rough calculation: average adult reads ~200-250 words per minute)
-  const wordCount = content.split(/\s+/).length;
-  const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const handleImageError = () => {
     setImgError(true);
@@ -30,58 +38,79 @@ export function PostContent({ post }: PostContentProps) {
 
   const imageSrc = imgError ? '/images/blog/default.jpg' : (coverImage || '/images/blog/default.jpg');
 
+  useEffect(() => {
+    initializeMermaid();
+
+    const processMermaidDiagrams = async () => {
+      if (!contentRef.current) return;
+
+      const preElements = contentRef.current.querySelectorAll('pre code.language-mermaid');
+      
+      if (preElements.length > 0) {
+        for (const preCode of preElements) {
+          const pre = preCode.parentElement as HTMLElement;
+          if (!pre || pre.getAttribute('data-mermaid-processed') === 'true') continue;
+
+          let mermaidCode = preCode.textContent?.trim() || '';
+          if (!mermaidCode) continue;
+
+          try {
+            const id = `mermaid-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+            const { svg } = await mermaid.render(id, mermaidCode);
+            
+            // Create replacement div
+            const wrapper = document.createElement('div');
+            wrapper.className = 'mermaid-diagram';
+            wrapper.innerHTML = svg;
+            
+            // Replace the pre element with the rendered diagram
+            pre.parentNode?.replaceChild(wrapper, pre);
+            wrapper.setAttribute('data-mermaid-processed', 'true');
+          } catch (error) {
+            console.error('Mermaid rendering error:', error);
+            // Keep the original code block if rendering fails
+            pre.setAttribute('data-mermaid-processed', 'true');
+          }
+        }
+      }
+    };
+
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+      processMermaidDiagrams();
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [content]);
+
   return (
-    <div className="bg-[#f7f7f7] min-h-screen py-10">
-      <article className="bg-white rounded-2xl shadow-lg max-w-3xl mx-auto p-12">
-        <header className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">{title}</h1>
-          {post.excerpt && (
-            <p className="prose-lead mt-4 mb-8">{post.excerpt}</p>
-          )}
-          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mb-6">
-            <div className="flex items-center">
-              <CalendarIcon className="mr-1 h-4 w-4" />
-              <time dateTime={date}>{formattedDate}</time>
-            </div>
-            <div className="flex items-center">
-              <ClockIcon className="mr-1 h-4 w-4" />
-              <span>{readingTime} min read</span>
-            </div>
-          </div>
-          <div className="relative w-full h-64 md:h-96 overflow-hidden rounded-lg mb-8">
+    <div className="min-h-screen bg-white dark:bg-[#1e1e1e] py-8">
+      <div className="container mx-auto px-4 max-w-4xl">
+        <div className="mb-8 -mx-4">
+          <div className="relative w-full h-64 md:h-96 overflow-hidden">
             <Image 
               src={imageSrc}
-              alt={title}
+              alt={post.title}
               fill
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 100vw, 75vw"
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 100vw, 896px"
               className="object-cover"
               priority
               onError={handleImageError}
             />
           </div>
-        </header>
-
-        <div className="prose prose-lg max-w-none">
-          <div dangerouslySetInnerHTML={{ __html: content }} />
         </div>
 
-        {tags && tags.length > 0 && (
-          <div className="mt-8 pt-6 border-t">
-            <h2 className="text-lg font-semibold mb-3">Topics</h2>
-            <div className="flex flex-wrap gap-2">
-              {tags.map((tag) => (
-                <span 
-                  key={tag} 
-                  className="inline-flex items-center px-3 py-1 text-sm font-medium rounded-full bg-primary/10 text-primary"
-                >
-                  <TagIcon className="mr-1 h-3 w-3" />
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
+        {/* Series Navigation - shown if post belongs to a series */}
+        {series && (
+          <SeriesNavigation series={series} currentSlug={slug} />
         )}
-      </article>
+
+        <div 
+          ref={contentRef}
+          className="markdown-body"
+          dangerouslySetInnerHTML={{ __html: content }} 
+        />
+      </div>
     </div>
   );
-} 
+}
