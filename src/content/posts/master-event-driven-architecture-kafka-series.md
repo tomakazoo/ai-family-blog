@@ -10,9 +10,10 @@ coverImage: "/images/blog/streaming-data.jpg"
 
 ## 📚 A Comprehensive Learning Journey
 
-Welcome to the most comprehensive, production-ready blog series on Event-Driven Architecture and Apache Kafka available anywhere!
+Alright, let's finally figure out this whole Event-Driven Kafka thing.
 
-This 7-part series takes you from **complete beginner to production expert** in event-driven systems. Whether you're a junior developer learning modern architecture patterns, a senior engineer implementing advanced patterns, or a DevOps engineer operating event-driven systems in production - this series has you covered.
+Consider this your **7-part VIP pass** from **"What even is an event?"** to **"I can't believe this actually works in production."** We built the series we wish we'd had—so whether you're a newbie, a senior dev, or the on-call DevOps hero, you can stop guessing and start building.
+
 
 ---
 
@@ -20,7 +21,8 @@ This 7-part series takes you from **complete beginner to production expert** in 
 
 This series combines **theoretical foundations** with **practical implementations** and **production operations**. You'll build real systems, learn industry patterns, and understand how to operate event-driven architectures at scale.
 
-**Total Content:** 280KB | **10,556 lines** | **150+ code examples** | **75+ diagrams** | **7 complete parts**
+**Total Content:** 280KB | **10,556 lines** | **150+ code examples** | **75+ diagrams** | **7 complete parts** <br>
+_💡(Fact-checked by an AI that definitely doesn't have impostor syndrome)🤖_
 
 ---
 
@@ -175,35 +177,35 @@ This series combines **theoretical foundations** with **practical implementation
 ## 🎓 Learning Paths
 
 ### **Beginner Path (4 weeks)**
-**Week 1:** [Part 1](part-01-introduction-to-eda.md) - EDA Fundamentals  
-**Week 2:** [Part 2](part-02-event-patterns-and-design.md) - Event Design  
-**Week 3:** [Part 3](part-03-introduction-to-kafka.md) - Kafka Concepts  
-**Week 4:** [Part 4](part-04-hands-on-kafka.md) - Hands-On Project  
+**Week 1:** [Part 1](part-01-introduction-to-eda) - EDA Fundamentals  
+**Week 2:** [Part 2](part-02-event-patterns-and-design) - Event Design  
+**Week 3:** [Part 3](part-03-introduction-to-kafka) - Kafka Concepts  
+**Week 4:** [Part 4](part-04-hands-on-kafka) - Hands-On Project  
 
 **Outcome:** Working event-driven application you can run locally
 
 ### **Intermediate Path (3 weeks)**
-**Week 1:** Parts 1-3 (review) + [Part 4](part-04-hands-on-kafka.md)  
-**Week 2:** [Part 5](part-05-advanced-kafka-concepts.md) - Advanced Kafka  
-**Week 3:** [Part 6](part-06-advanced-patterns.md) - Advanced Patterns  
+**Week 1:** Parts 1-3 (review) + [Part 4](part-04-hands-on-kafka)  
+**Week 2:** [Part 5](part-05-advanced-kafka-concepts) - Advanced Kafka  
+**Week 3:** [Part 6](part-06-advanced-patterns) - Advanced Patterns  
 
 **Outcome:** Production-ready implementations with advanced patterns
 
 ### **Advanced Path (2 weeks)**
-**Week 1:** [Parts 5-6](part-05-advanced-kafka-concepts.md) - Advanced Concepts  
-**Week 2:** [Part 7](part-07-production-operations.md) - Production Operations  
+**Week 1:** [Parts 5-6](part-05-advanced-kafka-concepts) - Advanced Concepts  
+**Week 2:** [Part 7](part-07-production-operations) - Production Operations  
 
 **Outcome:** Complete production operational expertise
 
 ### **Architect Path (2 weeks)**
-**Week 1:** [Parts 1-2](part-01-introduction-to-eda.md) + [Part 6](part-06-advanced-patterns.md)  
-**Week 2:** [Part 7](part-07-production-operations.md) + Capacity Planning  
+**Week 1:** [Parts 1-2](part-01-introduction-to-eda) + [Part 6](part-06-advanced-patterns)  
+**Week 2:** [Part 7](part-07-production-operations) + Capacity Planning  
 
 **Outcome:** Architectural decision-making capability
 
 ### **DevOps/SRE Path (2 weeks)**
-**Week 1:** [Parts 3-4](part-03-introduction-to-kafka.md) - Kafka Focus  
-**Week 2:** [Part 5](part-05-advanced-kafka-concepts.md) + [Part 7](part-07-production-operations.md)  
+**Week 1:** [Parts 3-4](part-03-introduction-to-kafka) - Kafka Focus  
+**Week 2:** [Part 5](part-05-advanced-kafka-concepts) + [Part 7](part-07-production-operations)  
 
 **Outcome:** Production operations and scaling expertise
 
@@ -293,7 +295,7 @@ After this series, you can:
 - Basic programming knowledge
 
 ### Getting Started
-1. **Start with [Part 1](part-01-introduction-to-eda.md)** - Understand EDA fundamentals
+1. **Start with [Part 1](part-01-introduction-to-eda** - Understand EDA fundamentals
 2. **Follow the learning path** that matches your level
 3. **Run the code examples** - Everything is designed to work
 4. **Build your own project** using the patterns learned
@@ -367,7 +369,7 @@ This series represents **months of research and implementation work** to create 
 
 ## 🚀 Start Your Journey
 
-**Ready to begin?** Head to [Part 1: Introduction to Event-Driven Architecture](part-01-introduction-to-eda.md) and start building your event-driven expertise today!
+**Ready to begin?** Head to [Part 1: Introduction to Event-Driven Architecture](part-01-introduction-to-eda) and start building your event-driven expertise today!
 
 Each part builds on the previous, taking you from fundamentals to advanced production operations. The code examples work, the diagrams clarify complex concepts, and the explanations ensure you understand not just how, but why.
 
