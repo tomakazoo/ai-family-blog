@@ -35,7 +35,7 @@ This series combines **theoretical foundations** with **practical implementation
 - When to (and when NOT to) use Event-Driven Architecture
 - Real-world use cases from e-commerce, IoT, and user tracking
 
-**Key Outcomes:**
+**Key Outcomes:**<br>
 ✅ Understand event-driven fundamentals  
 ✅ Know when EDA fits your use case  
 ✅ Build basic event-driven systems  
@@ -51,7 +51,7 @@ This series combines **theoretical foundations** with **practical implementation
 - Common design mistakes and how to avoid them
 - Finding the right event granularity
 
-**Key Outcomes:**
+**Key Outcomes:**<br>
 ✅ Choose appropriate event patterns  
 ✅ Design maintainable, evolvable events  
 ✅ Handle schema evolution properly  
@@ -67,7 +67,7 @@ This series combines **theoretical foundations** with **practical implementation
 - Message delivery guarantees and trade-offs
 - Kafka ecosystem overview and when to use Kafka
 
-**Key Outcomes:**
+**Key Outcomes:**<br>
 ✅ Understand Kafka architecture deeply  
 ✅ Master core concepts and performance  
 ✅ Know when Kafka is the right choice  
@@ -85,7 +85,7 @@ This series combines **theoretical foundations** with **practical implementation
 - Testing failure scenarios and event replay
 - Monitoring consumer lag and system health
 
-**Key Outcomes:**
+**Key Outcomes:**<br>
 ✅ Set up Kafka clusters locally  
 ✅ Build complete event-driven applications  
 ✅ Handle failures and scaling gracefully  
@@ -103,7 +103,7 @@ This series combines **theoretical foundations** with **practical implementation
 - Security: SSL, SASL, ACLs
 - Multi-datacenter replication and disaster recovery
 
-**Key Outcomes:**
+**Key Outcomes:**<br>
 ✅ Implement exactly-once semantics  
 ✅ Use Kafka Streams for processing  
 ✅ Tune Kafka for optimal performance  
@@ -120,7 +120,7 @@ This series combines **theoretical foundations** with **practical implementation
 - Inbox Pattern for idempotent consumers
 - Complete e-commerce system combining all patterns
 
-**Key Outcomes:**
+**Key Outcomes:**<br>
 ✅ Implement CQRS for complex domains  
 ✅ Use event sourcing for audit trails  
 ✅ Manage distributed transactions with sagas  
@@ -137,7 +137,7 @@ This series combines **theoretical foundations** with **practical implementation
 - Incident response runbooks and best practices
 - Capacity planning and performance optimization
 
-**Key Outcomes:**
+**Key Outcomes:**<br>
 ✅ Monitor systems comprehensively  
 ✅ Debug and troubleshoot effectively  
 ✅ Operate event-driven systems reliably  
