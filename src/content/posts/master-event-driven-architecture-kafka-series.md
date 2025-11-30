@@ -24,6 +24,10 @@ This series combines **theoretical foundations** with **practical implementation
 **Total Content:** 280KB | **10,556 lines** | **150+ code examples** | **75+ diagrams** | **7 complete parts** <br>
 _💡(Fact-checked by an AI that definitely doesn't have impostor syndrome)🤖_
 
+### 📦 Source Code & Examples
+All source code, complete examples, and runnable implementations from this series are available on GitHub:
+**[🔗 View on GitHub: kafka-event-driven-architecture](https://github.com/tomakazoo/kafka-event-driven-architecture)**
+
 ---
 
 ## 📖 Series Overview
@@ -326,6 +330,9 @@ After this series, you can:
 ---
 
 ## 🔗 Additional Resources
+
+### Source Code Repository
+- **[kafka-event-driven-architecture](https://github.com/tomakazoo/kafka-event-driven-architecture)** - Complete source code, examples, and implementations from this series
 
 ### Documentation
 - [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
