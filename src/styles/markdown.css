@@ -295,6 +295,19 @@
   border-color: #2d5a8f;
 }
 
+.markdown-body pre:has(code.language-csharp),
+.markdown-body pre:has(code.language-cs) {
+  background: linear-gradient(135deg, #e5f1ff 0%, #d0e7ff 100%);
+  border-color: #7fb3ff;
+  border-width: 2px;
+}
+
+.dark .markdown-body pre:has(code.language-csharp),
+.dark .markdown-body pre:has(code.language-cs) {
+  background: linear-gradient(135deg, #1a2940 0%, #0f1f35 100%);
+  border-color: #2d5a8f;
+}
+
 .markdown-body pre:has(code.language-javascript),
 .markdown-body pre:has(code.language-js),
 .markdown-body pre:has(code.language-typescript),
@@ -428,5 +441,135 @@
 .markdown-body .mermaid-diagram svg {
   max-width: 100%;
   height: auto;
+}
+
+/* Try It Yourself section - special formatting */
+.markdown-body .try-it-yourself-section {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 2px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 32px;
+  margin: 32px 0;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  position: relative;
+}
+
+.dark .markdown-body .try-it-yourself-section {
+  background: linear-gradient(135deg, #0c4a6e 0%, #075985 100%);
+  border-color: #0284c7;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+.markdown-body .try-it-yourself-section::before {
+  content: "🚀";
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  font-size: 2em;
+  opacity: 0.3;
+}
+
+.markdown-body .try-it-yourself-section h2 {
+  color: #0369a1;
+  border-bottom: 2px solid #0ea5e9;
+  padding-bottom: 12px;
+  margin-top: 0;
+}
+
+.dark .markdown-body .try-it-yourself-section h2 {
+  color: #38bdf8;
+  border-bottom-color: #0284c7;
+}
+
+.markdown-body .try-it-yourself-section h3 {
+  color: #0284c7;
+  margin-top: 24px;
+}
+
+.dark .markdown-body .try-it-yourself-section h3 {
+  color: #7dd3fc;
+}
+
+.markdown-body .try-it-yourself-section p,
+.markdown-body .try-it-yourself-section ul,
+.markdown-body .try-it-yourself-section ol {
+  margin-bottom: 16px;
+}
+
+.markdown-body .try-it-yourself-section > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-body .try-it-yourself-section > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Try It Yourself links box */
+.markdown-body .try-it-yourself-links {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 2px solid #0ea5e9;
+  border-left: 4px solid #0ea5e9;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin: 24px 0;
+  box-shadow: 0 2px 4px rgba(14, 165, 233, 0.1);
+}
+
+.dark .markdown-body .try-it-yourself-links {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-color: #0284c7;
+  border-left-color: #0284c7;
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);
+}
+
+.markdown-body .try-it-yourself-links strong {
+  display: block;
+  color: #0369a1;
+  font-size: 1.1em;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.dark .markdown-body .try-it-yourself-links strong {
+  color: #38bdf8;
+}
+
+.markdown-body .try-it-yourself-links ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.markdown-body .try-it-yourself-links li {
+  margin-bottom: 10px;
+  padding-left: 0;
+  line-height: 1.6;
+}
+
+.markdown-body .try-it-yourself-links li::before {
+  content: "";
+  display: none;
+}
+
+.markdown-body .try-it-yourself-links a {
+  color: #0284c7;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.markdown-body .try-it-yourself-links a:hover {
+  color: #0369a1;
+  border-bottom-color: #0284c7;
+}
+
+.dark .markdown-body .try-it-yourself-links a {
+  color: #7dd3fc;
+}
+
+.dark .markdown-body .try-it-yourself-links a:hover {
+  color: #38bdf8;
+  border-bottom-color: #7dd3fc;
 }
 
