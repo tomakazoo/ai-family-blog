@@ -10,6 +10,10 @@ coverImage: "/images/blog/streaming-data.jpg"
 
 ## 📚 A Comprehensive Learning Journey
 
+> **💻 Language Note:** All code examples in this series are written in **C#**. Python implementations will be added in the future following the same patterns and concepts demonstrated here.
+
+> **🔧 Kafka Version:** This series uses **Kafka version 7.5.0 (Confluent Platform)**, which corresponds to **Apache Kafka 3.5.0**. The Confluent Platform image includes Kafka and additional tooling. This version still runs Zookeeper. In future updates, I will migrate to a version after 3.9 (which was the last version including Zookeeper).
+
 Alright, let's finally figure out this whole Event-Driven Kafka thing.
 
 Consider this your **7-part VIP pass** from **"What even is an event?"** to **"I can't believe this actually works in production."** We built the series we wish we'd had—so whether you're a newbie, a senior dev, or the on-call DevOps hero, you can stop guessing and start building.
@@ -85,7 +89,7 @@ All source code, complete examples, and runnable implementations from this serie
 **What you'll learn:**
 - Complete Docker Compose Kafka cluster setup (3 brokers)
 - Building a full e-commerce order processing system
-- Order Service (Flask REST API + Kafka producer)
+- Order Service (ASP.NET Core REST API + Kafka producer)
 - Email, Inventory, and Analytics consumer services
 - Consumer group mechanics and parallel processing
 - Testing failure scenarios and event replay
@@ -162,11 +166,13 @@ All source code, complete examples, and runnable implementations from this serie
 - **5 Complete Applications** - Real runnable systems
 
 ### Technologies Covered
-**Languages:** Python, Java, YAML, Bash, SQL, JSON  
-**Core Systems:** Apache Kafka, ZooKeeper  
+**Languages:** C#, Java, YAML, Bash, SQL, JSON  
+**Core Systems:** Apache Kafka 3.5.0 (Confluent Platform 7.5.0), ZooKeeper  
 **Tools:** Docker, Prometheus, Grafana, Jaeger, OpenTelemetry  
 **Databases:** PostgreSQL, MongoDB, Redis  
-**Patterns:** CQRS, Event Sourcing, Sagas, Outbox, Inbox  
+**Patterns:** CQRS, Event Sourcing, Sagas, Outbox, Inbox
+
+> **🔧 Kafka Version Note:** This series uses **Kafka 7.5.0 (Confluent Platform)**, corresponding to **Apache Kafka 3.5.0**. The Confluent Platform image includes Kafka and additional tooling. This version still runs Zookeeper. In future updates, I will migrate to a version after 3.9 (which was the last version including Zookeeper).  
 
 ### Diagram Distribution
 - **Architecture Diagrams:** 20+ (system overviews, infrastructure)
@@ -294,9 +300,13 @@ After this series, you can:
 ## 💻 Quick Start Guide
 
 ### Prerequisites
-- Python 3.8+ (for examples)
+- .NET 8.0 SDK (for examples)
 - Docker (for Part 4 hands-on)
 - Basic programming knowledge
+
+> **💻 Language Note:** All code examples in this series are written in **C#**. Python implementations will be added in the future following the same patterns and concepts demonstrated here.
+
+> **🔧 Kafka Version:** This series uses **Kafka version 7.5.0 (Confluent Platform)**, which corresponds to **Apache Kafka 3.5.0**. The Confluent Platform image includes Kafka and additional tooling. This version still runs Zookeeper. In future updates, I will migrate to a version after 3.9 (which was the last version including Zookeeper).
 
 ### Getting Started
 1. **Start with [Part 1](part-01-introduction-to-eda** - Understand EDA fundamentals
@@ -339,20 +349,10 @@ After this series, you can:
 - [Confluent Platform Docs](https://docs.confluent.io/)
 - [Schema Registry Guide](https://docs.confluent.io/platform/current/schema-registry/)
 
-### Tools & Software
-- [Kafka UI](https://github.com/provectus/kafka-ui) - Web interface for Kafka
-- [Kafdrop](https://github.com/obsidiandynamics/kafdrop) - Simple Kafka UI
-- [Conduktor](https://www.conduktor.io/) - Kafka desktop client
-
-### Community
-- [Confluent Community Slack](https://slackpass.io/confluentcommunity)
-- [Apache Kafka Users Mailing List](https://kafka.apache.org/contact)
-- [Stack Overflow](https://stackoverflow.com/questions/tagged/kafka)
-
 ### Books
-- "Designing Data-Intensive Applications" by Martin Kleppmann
-- "Kafka: The Definitive Guide" by Neha Narkhede
-- "Building Event-Driven Microservices" by Adam Bellemare
+- ["Designing Data-Intensive Applications" by Martin Kleppmann](https://www.amazon.com/Designing-Data-Intensive-Applications-Reliable-Maintainable/dp/1449373321)
+- ["Kafka: The Definitive Guide" by Neha Narkhede](https://www.oreilly.com/library/view/kafka-the-definitive/9781491936153/)
+- ["Building Event-Driven Microservices" by Adam Bellemare](https://www.oreilly.com/library/view/building-event-driven-microservices/9781492057888/)
 
 ---
 
@@ -397,4 +397,4 @@ This series is designed to be a **living resource** that evolves with Kafka and 
 
 ---
 
-*This comprehensive series is the result of extensive research into event-driven systems, hands-on implementation of production patterns, and real-world operational experience. It's designed to be your complete guide from beginner to expert in Event-Driven Architecture and Apache Kafka.*
+*This comprehensive series is the result of years of working with Kafka in production environments, hands-on implementation of production patterns, and real-world operational experience. It's designed to be your complete guide from beginner to expert in Event-Driven Architecture and Apache Kafka.*

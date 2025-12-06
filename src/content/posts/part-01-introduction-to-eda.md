@@ -8,7 +8,7 @@ coverImage: "/images/blog/intro-eda.jpg"
 
 # Part 1: What Is Event-Driven Architecture? A Beginner's Guide
 
-> **💻 Language Note:** All code examples in this post are written in **C#**. As I want to learn more Python, I will soon follow with similar examples in Python following the same patterns and concepts demonstrated here.
+> **💻 Language Note:** All code examples in this post are written in **C#**. Python implementations will be added in the future following the same patterns and concepts demonstrated here.
 
 ## The Problem with Traditional Request-Response
 
