@@ -47,82 +47,11 @@ This is the synchronous, tightly-coupled approach. And it doesn't scale well.
 
 ### The Pain Points
 
-**1. Tight Coupling**
+**1. Tight Coupling** - Your order service must know about every downstream service. Adding new functionality requires modifying existing code.
 
-> 💡 **Pseudo code** - Simplified for illustration purposes
+**2. Cascading Failures** - If the email service times out, should the entire order fail? What about the payment that already went through?
 
-```csharp
-// Coupling
-// Traditional approach - Order Service knows about everything
-public class OrderService
-{
-    public OrderService()
-    {
-        payment_client = new PaymentServiceClient();
-        inventory_client = new InventoryServiceClient();
-        email_client = new EmailServiceClient();
-        warehouse_client = new WarehouseServiceClient();
-        analytics_client = new AnalyticsServiceClient();
-        loyalty_client = new LoyaltyServiceClient();
-    }
-    
-    public void place_order(object order_data)
-    {
-        // Must call each service
-        var payment = payment_client.charge(order_data.payment_info);
-        inventory_client.update_stock(order_data.items);
-        email_client.send_confirmation(order_data.customer_email);
-        warehouse_client.notify(order_data);
-        analytics_client.record_sale(order_data);
-        loyalty_client.award_points(order_data.customer_id);
-        
-        // Order service needs to know EVERYTHING
-        // Adding a new service? Modify this code!
-    }
-    
-    private PaymentServiceClient payment_client;
-    private InventoryServiceClient inventory_client;
-    private EmailServiceClient email_client;
-    private WarehouseServiceClient warehouse_client;
-    private AnalyticsServiceClient analytics_client;
-    private LoyaltyServiceClient loyalty_client;
-}
-```
-
-**2. Cascading Failures**
-
-> 💡 **Pseudo code** - Simplified for illustration purposes
-
-```csharp
-public void place_order(object order_data)
-{
-    try
-    {
-        var payment = payment_client.charge(order_data.payment_info);
-    }
-    catch (TimeoutException)
-    {
-        // Payment service is slow - customer waits 30 seconds
-        throw new OrderProcessingException("Payment timeout");
-    }
-    
-    try
-    {
-        email_client.send_confirmation(order_data.customer_email);
-    }
-    catch (ServiceUnavailableException)
-    {
-        // Email service is down - should the order fail?
-        // What about the payment that already went through?
-        throw new OrderProcessingException("Email service down");
-    }
-}
-```
-
-**3. Scaling Challenges**
-- Black Friday: Email service is overwhelmed
-- Must scale the entire order service just to handle more emails
-- Can't independently scale services based on their load
+**3. Scaling Challenges** - Black Friday overwhelms your email service, but you can't scale it independently. You're forced to scale the entire order service.
 
 ## Enter Event-Driven Architecture
 
@@ -155,13 +84,94 @@ graph LR
 
 ## What Is an Event?
 
-An event is a record of something that happened in your system. Events are:
+An event is a record of something that happened in your system. Think of it as a notification that something meaningful occurred - a fact that other parts of your system might care about.
 
-**Immutable** - Once something happened, it happened. You can't change history.
+### Core Characteristics
 
-**Past tense** - Events describe what already occurred: "OrderPlaced", "PaymentProcessed", "UserRegistered".
+**Immutable** - Once something happened, it happened. You can't change history. Events are never modified after they're created.
 
-**Self-contained** - Events carry all the information needed to understand what happened.
+**Past tense** - Events describe what already occurred: "OrderPlaced", "PaymentProcessed", "UserRegistered". Never "PlaceOrder" or "ProcessPayment".
+
+**Self-contained** - Events carry all the information needed to understand what happened, so consumers don't need to make additional calls to get context.
+
+### Events vs. Messages vs. Commands
+
+It's important to distinguish between different types of messages in distributed systems:
+
+<table style="width: 100%; border-collapse: separate; border-spacing: 0; margin: 24px 0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06); background:rgb(184, 125, 125);">
+<thead>
+<tr style="background-color:rgb(183, 223, 8);">
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #2d2d2d; border: none; background-color:rgb(8, 198, 223); border-right: 1px solid rgba(45, 45, 45, 0.2); border-bottom: 2px solid rgba(45, 45, 45, 0.3);">Type</th>
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #2d2d2d; border: none; background-color:rgb(8, 198, 223); border-right: 1px solid rgba(45, 45, 45, 0.2); border-bottom: 2px solid rgba(45, 45, 45, 0.3);">Purpose</th>
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #2d2d2d; border: none; background-color:rgb(8, 198, 223); border-right: 1px solid rgba(45, 45, 45, 0.2); border-bottom: 2px solid rgba(45, 45, 45, 0.3);">Naming</th>
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #2d2d2d; border: none; background-color:rgb(8, 198, 223); border-right: 1px solid rgba(45, 45, 45, 0.2); border-bottom: 2px solid rgba(45, 45, 45, 0.3);">Example</th>
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #2d2d2d; border: none; background-color:rgb(8, 198, 223); border-bottom: 2px solid rgba(45, 45, 45, 0.3);">Direction</th>
+</tr>
+</thead>
+<tbody>
+<tr style="background-color: #1a1a2e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Event</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Notify about past occurrence</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Past tense</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color:rgb(178, 190, 8); font-family: 'Monaco', 'Menlo', 'Courier New', monospace; font-size: 13px;">OrderPlaced</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Broadcast (1-to-many)</td>
+</tr>
+<tr style="background-color: #16213e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Command</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Request an action</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Imperative</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color:rgb(178, 190, 8); font-family: 'Monaco', 'Menlo', 'Courier New', monospace; font-size: 13px;">PlaceOrder</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Direct (1-to-1)</td>
+</tr>
+<tr style="background-color: #1a1a2e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Message</strong></td>
+<td style="padding: 16px 20px; border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Generic data transfer</td>
+<td style="padding: 16px 20px; border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Varies</td>
+<td style="padding: 16px 20px; border-right: 1px solid rgba(255, 255, 255, 0.1); color:rgb(178, 190, 8); font-family: 'Monaco', 'Menlo', 'Courier New', monospace; font-size: 13px;">OrderData</td>
+<td style="padding: 16px 20px; color: #e0e0e0;">Either</td>
+</tr>
+</tbody>
+</table>
+
+**Events** announce facts - "This happened." They're broadcast to anyone who cares. The producer doesn't know who's listening.
+
+**Commands** request actions - "Do this." They're directed to a specific service. The sender knows the receiver.
+
+In EDA, we primarily use events because they enable loose coupling. Services react to facts rather than being told what to do.
+
+### Event Naming Conventions
+
+Good event names are:
+- **Domain-specific**: `OrderPlaced` not `DataCreated`
+- **Past tense**: `PaymentProcessed` not `ProcessPayment`
+- **Business-focused**: `CustomerRegistered` not `UserRowInserted`
+- **Specific**: `OrderCancelled` not `OrderStatusChanged`
+
+### Event Granularity: Finding the Right Level
+
+**Too Fine-Grained** (Anti-pattern):
+```json
+// BAD: Separate events for each field change
+{ "eventType": "OrderAddressStreetChanged" }
+{ "eventType": "OrderAddressZipChanged" }
+{ "eventType": "OrderAddressCityChanged" }
+```
+
+**Too Coarse-Grained** (Anti-pattern):
+```json
+// BAD: Single event for everything
+{ "eventType": "OrderChanged", "changes": [...] }
+```
+
+**Just Right**:
+```json
+// GOOD: One event per meaningful business action
+{ "eventType": "OrderShippingAddressUpdated" }
+{ "eventType": "OrderPlaced" }
+{ "eventType": "OrderCancelled" }
+```
+
+**Rule of thumb**: One event = one meaningful business fact that others might care about.
 
 ### Anatomy of a Well-Designed Event
 
@@ -202,15 +212,68 @@ An event is a record of something that happened in your system. Events are:
 }
 ```
 
-**Key Components:**
+**Key Components Explained:**
 
-1. **eventId** - Unique identifier for deduplication
-2. **eventType** - What happened (in past tense)
-3. **eventVersion** - For schema evolution
-4. **timestamp** - When it happened
-5. **source** - Which service produced this event
-6. **correlationId** - For distributed tracing
-7. **data** - The payload with all relevant information
+1. **eventId** - Unique identifier for deduplication. Consumers use this to detect and skip duplicate messages.
+
+2. **eventType** - What happened (in past tense). This is how consumers filter events they care about.
+
+3. **eventVersion** - For schema evolution. When you need to change the event structure, increment this so consumers can handle multiple versions gracefully.
+
+4. **timestamp** - When it happened (ISO 8601 format, UTC). Critical for event ordering and time-based processing.
+
+5. **source** - Which service produced this event. Useful for debugging and understanding event flow.
+
+6. **correlationId** - For distributed tracing. Links related events across services so you can trace a business transaction end-to-end.
+
+7. **data** - The payload with all relevant information. Should be self-contained - consumers shouldn't need to call other services to understand this event.
+
+### Fat Events vs. Thin Events
+
+**Thin Events** (Anti-pattern for most cases):
+```json
+{
+  "eventType": "OrderPlaced",
+  "data": {
+    "orderId": "ORD-789"
+  }
+}
+// Consumers must call Order API to get details
+```
+
+**Fat Events** (Recommended):
+```json
+{
+  "eventType": "OrderPlaced",
+  "data": {
+    "orderId": "ORD-789",
+    "customerId": "CUST-456",
+    "customerEmail": "customer@example.com",
+    "items": [...],
+    "totalAmount": 99.99
+  }
+}
+// Consumers have everything they need
+```
+
+**Why fat events?** They reduce coupling. Consumers can react without calling back to the producer. The trade-off is larger message size, but the decoupling benefit usually outweighs this cost.
+
+**Exception**: Use thin events when the data is very large (>1MB) or changes frequently. In these cases, include just enough information for consumers to decide if they care, then let them fetch details if needed.
+
+### Event Ownership and Schema Management
+
+**Who owns an event?** The service that publishes it. The Order Service owns the `OrderPlaced` event schema.
+
+**What if multiple teams need different data?** 
+- **Option 1**: Enrich the event with data all consumers need (preferred)
+- **Option 2**: Publish multiple events for different audiences
+- **Option 3**: Let consumers enrich events themselves (more coupling)
+
+**Schema evolution best practices**:
+- Never remove fields (only deprecate them)
+- Always add new fields as optional
+- Use `eventVersion` to signal breaking changes
+- Maintain backward compatibility for at least 2-3 versions
 
 ## The Three Pillars of EDA
 
@@ -251,24 +314,11 @@ graph TB
 ### 1. Event Producers
 
 Services that publish events when something significant happens. Your order service is a producer when it publishes "OrderPlaced" events.
-
 > 💡 **Pseudo code** - Simplified for illustration purposes
-
 ```csharp
-using System;
-using System.Collections.Generic;
-using System.Text.Json;
-using Confluent.Kafka;
-
 public class OrderEventProducer
 {
     private readonly IProducer<string, string> producer;
-
-    public OrderEventProducer()
-    {
-        var config = new ProducerConfig { BootstrapServers = "localhost:9092" };
-        producer = new ProducerBuilder<string, string>(config).Build();
-    }
 
     public void PublishOrderPlaced(Order order)
     {
@@ -276,47 +326,15 @@ public class OrderEventProducer
         {
             eventId = Guid.NewGuid().ToString(),
             eventType = "OrderPlaced",
-            eventVersion = "1.0",
-            timestamp = DateTime.UtcNow.ToString("o"),
-            source = "order-service",
-            correlationId = order.CorrelationId,
-            data = new
-            {
-                orderId = order.Id,
-                customerId = order.CustomerId,
-                customerEmail = order.CustomerEmail,
-                totalAmount = order.TotalAmount,
-                items = order.Items.ConvertAll(item => new {
-                    productId = item.ProductId,
-                    quantity = item.Quantity,
-                    price = item.Price
-                })
-            }
+            timestamp = DateTime.UtcNow,
+            data = new { orderId = order.Id, /* ... */ }
         };
 
-        var eventJson = JsonSerializer.Serialize(eventObj);
-        producer.Produce("orders", new Message<string, string> { Value = eventJson });
-        producer.Flush();
-
-        Console.WriteLine($"✅ Published OrderPlaced event: {eventObj.eventId}");
+        producer.Produce("orders", new Message<string, string> 
+        { 
+            Value = JsonSerializer.Serialize(eventObj) 
+        });
     }
-}
-
-public class Order
-{
-    public string CorrelationId { get; set; }
-    public string Id { get; set; }
-    public string CustomerId { get; set; }
-    public string CustomerEmail { get; set; }
-    public decimal TotalAmount { get; set; }
-    public List<OrderItem> Items { get; set; }
-}
-
-public class OrderItem
-{
-    public string ProductId { get; set; }
-    public int Quantity { get; set; }
-    public decimal Price { get; set; }
 }
 ```
 
@@ -341,68 +359,22 @@ The middleman that receives events from producers and delivers them to consumers
 ### 3. Event Consumers
 
 Services that subscribe to and react to events. Your email service consumes "OrderPlaced" events to send confirmations.
-
 > 💡 **Pseudo code** - Simplified for illustration purposes
-
 ```csharp
-using System;
-using System.Text.Json;
-using Confluent.Kafka;
-
 public class EmailEventConsumer
 {
-    private readonly IConsumer<string, string> consumer;
-
-    public EmailEventConsumer()
-    {
-        var config = new ConsumerConfig
-        {
-            BootstrapServers = "localhost:9092",
-            GroupId = "email-service",
-            AutoOffsetReset = AutoOffsetReset.Earliest
-        };
-        consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe("orders");
-    }
-    
     public void StartConsuming()
     {
-        Console.WriteLine("📧 Email Service listening for order events...");
-        
         while (true)
         {
-            var consumeResult = consumer.Consume();
-            var eventObj = JsonSerializer.Deserialize<JsonElement>(consumeResult.Message.Value);
+            var message = consumer.Consume();
+            var eventObj = JsonSerializer.Deserialize<JsonElement>(message.Value);
             
             if (eventObj.GetProperty("eventType").GetString() == "OrderPlaced")
             {
-                handle_order_placed(eventObj);
+                SendConfirmationEmail(eventObj.GetProperty("data"));
             }
         }
-    }
-    
-    private void handle_order_placed(JsonElement eventObj)
-    {
-        var order_data = eventObj.GetProperty("data");
-        
-        Console.WriteLine($"📨 Sending confirmation email for order {order_data.GetProperty("orderId").GetString()}");
-        Console.WriteLine($"   To: {order_data.GetProperty("customerEmail").GetString()}");
-        Console.WriteLine($"   Amount: ${order_data.GetProperty("totalAmount").GetString()}");
-        
-        // Send email logic here
-        send_email(
-            to: order_data.GetProperty("customerEmail").GetString(),
-            subject: $"Order Confirmation - {order_data.GetProperty("orderId").GetString()}",
-            template: "order_confirmation",
-            data: order_data
-        );
-        
-        Console.WriteLine($"✅ Email sent for order {order_data.GetProperty("orderId").GetString()}");
-    }
-    
-    private void send_email(string to, string subject, string template, JsonElement data)
-    {
-        // Email implementation here
     }
 }
 ```
@@ -441,226 +413,31 @@ sequenceDiagram
     Note over EmailService,AnalyticsService: All services process independently
 ```
 
-### Complete Working Example
+## Common Misconceptions
+
+### Misconception 1: "EDA means no synchronous communication"
+
+**Reality:** EDA and REST APIs can coexist. Use events for notifications and async workflows. Use APIs for queries and sync operations.
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
-using System.Threading;
-using Confluent.Kafka;
+// Query - Use REST API
+GET /orders/ORD-123  // Synchronous, immediate response
 
-// === ORDER SERVICE (Producer) ===
-public class Order
-{
-    public string id;
-    public string customer_id;
-    public string customer_email;
-    public List<object> items;
-    public decimal total_amount;
-    public string correlation_id;
-
-    public Order(string order_id, string customer_id, string customer_email, List<object> items)
-    {
-        this.id = order_id;
-        this.customer_id = customer_id;
-        this.customer_email = customer_email;
-        this.items = items;
-        this.total_amount = items.Cast<Dictionary<string, object>>().Sum(item => (decimal)item["quantity"] * (decimal)item["price"]);
-        this.correlation_id = Guid.NewGuid().ToString();
-    }
-}
-
-public class OrderService
-{
-    private OrderEventProducer event_producer;
-
-    public OrderService()
-    {
-        event_producer = new OrderEventProducer();
-    }
-
-    public Order place_order(Dictionary<string, object> order_data)
-    {
-        // 1. Create and save order
-        var order = new Order(
-            $"ORD-{Guid.NewGuid().ToString("N")[0..8]}",
-            (string)order_data["customer_id"],
-            (string)order_data["customer_email"],
-            (List<object>)order_data["items"]
-        );
-
-        // Save to database
-        save_to_db(order);
-
-        // 2. Publish event - that's it!
-        event_producer.publish_order_placed(order);
-
-        return order;
-    }
-
-    private void save_to_db(Order order)
-    {
-        // Database implementation here
-    }
-}
-
-// === EMAIL SERVICE (Consumer) ===
-public class EmailService
-{
-    private EmailEventConsumer consumer;
-
-    public EmailService()
-    {
-        consumer = new EmailEventConsumer();
-    }
-
-    public void run()
-    {
-        consumer.start_consuming();
-    }
-}
-
-// === INVENTORY SERVICE (Consumer) ===
-public class InventoryEventConsumer
-{
-    private IConsumer<string, string> consumer;
-
-    public InventoryEventConsumer()
-    {
-        var config = new ConsumerConfig
-        {
-            BootstrapServers = "localhost:9092",
-            GroupId = "inventory-service"
-        };
-        consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe("orders");
-    }
-
-    public void start_consuming()
-    {
-        Console.WriteLine("📦 Inventory Service listening for order events...");
-
-        while (true)
-        {
-            var message = consumer.Consume();
-            var eventObj = JsonSerializer.Deserialize<JsonElement>(message.Message.Value);
-
-            if (eventObj.GetProperty("eventType").GetString() == "OrderPlaced")
-            {
-                handle_order_placed(eventObj);
-            }
-        }
-    }
-
-    private void handle_order_placed(JsonElement eventObj)
-    {
-        var order_data = eventObj.GetProperty("data");
-
-        Console.WriteLine($"📦 Updating inventory for order {order_data.GetProperty("orderId").GetString()}");
-
-        foreach (var item in order_data.GetProperty("items").EnumerateArray())
-        {
-            reduce_stock(item.GetProperty("productId").GetString(), (int)item.GetProperty("quantity").GetInt32());
-            Console.WriteLine($"   Reduced stock for {item.GetProperty("productId").GetString()}: -{item.GetProperty("quantity").GetInt32()}");
-        }
-
-        Console.WriteLine($"✅ Inventory updated for order {order_data.GetProperty("orderId").GetString()}");
-    }
-
-    private void reduce_stock(string productId, int quantity)
-    {
-        // Inventory logic here
-    }
-}
-
-// === ANALYTICS SERVICE (Consumer) ===
-public class AnalyticsEventConsumer
-{
-    private IConsumer<string, string> consumer;
-    private decimal total_revenue = 0;
-    private int order_count = 0;
-
-    public AnalyticsEventConsumer()
-    {
-        var config = new ConsumerConfig
-        {
-            BootstrapServers = "localhost:9092",
-            GroupId = "analytics-service"
-        };
-        consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe("orders");
-    }
-
-    public void start_consuming()
-    {
-        Console.WriteLine("📊 Analytics Service listening for order events...");
-
-        while (true)
-        {
-            var message = consumer.Consume();
-            var eventObj = JsonSerializer.Deserialize<JsonElement>(message.Message.Value);
-
-            if (eventObj.GetProperty("eventType").GetString() == "OrderPlaced")
-            {
-                handle_order_placed(eventObj);
-            }
-        }
-    }
-
-    private void handle_order_placed(JsonElement eventObj)
-    {
-        var order_data = eventObj.GetProperty("data");
-
-        order_count++;
-        total_revenue += decimal.Parse(order_data.GetProperty("totalAmount").GetString());
-
-        Console.WriteLine("📊 Analytics updated:");
-        Console.WriteLine($"   Total Orders: {order_count}");
-        Console.WriteLine($"   Total Revenue: ${total_revenue:F2}");
-        Console.WriteLine($"   Average Order Value: ${total_revenue/order_count:F2}");
-    }
-}
-
-// === RUNNING THE SYSTEM ===
-class Program
-{
-    static void Main(string[] args)
-    {
-        // Start consumers in separate threads
-        var email_service = new EmailService();
-        var inventory_service = new InventoryService();  // Note: needs InventoryService class with run() method
-        var analytics_service = new AnalyticsService();  // Note: needs AnalyticsService class with run() method
-
-        var emailThread = new Thread(() => email_service.run(), true) { IsBackground = true };
-        var inventoryThread = new Thread(() => inventory_service.run(), true) { IsBackground = true };
-        var analyticsThread = new Thread(() => analytics_service.run(), true) { IsBackground = true };
-
-        emailThread.Start();
-        inventoryThread.Start();
-        analyticsThread.Start();
-
-        // Give consumers time to start
-        Thread.Sleep(2000);
-
-        // Place some orders
-        var order_service = new OrderService();
-
-        order_service.place_order(new Dictionary<string, object>
-        {
-            ["customer_id"] = "CUST-001",
-            ["customer_email"] = "john@example.com",
-            ["items"] = new List<object>
-            {
-                new Dictionary<string, object> { ["productId"] = "PROD-001", ["quantity"] = 2, ["price"] = 29.99m },
-                new Dictionary<string, object> { ["productId"] = "PROD-002", ["quantity"] = 1, ["price"] = 49.99m }
-            }
-        });
-    }
-}
-    // Watch the magic happen across all services!
+// Command - Use Events
+POST /orders  // Create order, publish event, let services react asynchronously
 ```
+
+### Misconception 2: "EDA solves all problems"
+
+**Reality:** EDA introduces complexity. Only use it when the benefits outweigh the costs.
+
+### Misconception 3: "Events should be tiny"
+
+**Reality:** Events should be self-contained with enough data for consumers to act without additional calls.
+
+### Misconception 4: "EDA is only for big companies"
+
+**Reality:** Even small applications can benefit from EDA's decoupling and flexibility.
 
 ## Key Benefits Illustrated
 
@@ -690,64 +467,24 @@ graph LR
 ```
 
 **Adding a new fraud detection service:**
-
-Before EDA:
-
 > 💡 **Pseudo code** - Simplified for illustration purposes
-
+Before EDA - Must modify OrderService code:
 ```csharp
-// Must modify OrderService code
-public void place_order(object order_data)
-{
-    var payment = payment_client.charge(order_data.payment_info);
-    inventory_client.update_stock(order_data.items);
-    email_client.send_confirmation(order_data.customer_email);
-    // ADD THIS NEW LINE - requires code change!
-    fraud_detection_client.check_order(order_data);
-}
-
+// ADD THIS NEW LINE - requires code change!
+fraud_detection_client.check_order(order_data);
 ```
-
-After EDA:
-
 > 💡 **Pseudo code** - Simplified for illustration purposes
-
+After EDA - Just deploy a new consumer, NO changes to OrderService:
 ```csharp
-// Just deploy a new consumer - NO changes to OrderService!
+// New service subscribes to existing events
 public class FraudDetectionService
 {
-    private IConsumer<string, string> consumer;
-
-    public FraudDetectionService()
-    {
-        var config = new ConsumerConfig
-        {
-            BootstrapServers = "localhost:9092",
-            GroupId = "fraud-detection"
-        };
-        consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe("orders");
-    }
-
     public void run()
     {
-        while (true)
-        {
-            var message = consumer.Consume();
-            var eventObj = JsonSerializer.Deserialize<JsonElement>(message.Message.Value);
-            if (eventObj.GetProperty("eventType").GetString() == "OrderPlaced")
-            {
-                check_for_fraud(eventObj.GetProperty("data"));
-            }
-        }
-    }
-
-    private void check_for_fraud(JsonElement data)
-    {
-        // Fraud detection logic here
+        consumer.Subscribe("orders");
+        // Process OrderPlaced events
     }
 }
-
 ```
 
 ### 2. Independent Scaling
@@ -906,45 +643,33 @@ sequenceDiagram
 
 Event-Driven Architecture shines when:
 
-✅ **Multiple systems need to react to the same occurrence**
-- One order → email, inventory, shipping, analytics all react
+✅ **Multiple systems need to react to the same occurrence** - One order → email, inventory, shipping, analytics all react
 
-✅ **Services need to operate independently**
-- Email service down shouldn't block order placement
+✅ **Services need to operate independently** - Email service down shouldn't block order placement
 
-✅ **You're building microservices**
-- EDA provides natural service boundaries and communication
+✅ **You're building microservices** - EDA provides natural service boundaries and communication
 
-✅ **Different parts need different scaling**
-- Scale email service separately from payment service
+✅ **Different parts need different scaling** - Scale email service separately from payment service
 
-✅ **You want to add features without changing existing code**
-- New fraud detection? Just add a consumer
+✅ **You want to add features without changing existing code** - New fraud detection? Just add a consumer
 
-✅ **You need an audit trail**
-- Events provide natural history of what happened
+✅ **You need an audit trail** - Events provide natural history of what happened
 
-✅ **Real-time data processing**
-- Process streams of events as they occur
+✅ **Real-time data processing** - Process streams of events as they occur
 
 ## When NOT to Use EDA
 
 EDA might be overkill for:
 
-❌ **Simple CRUD applications**
-- If you're just reading and writing data, REST API might be simpler
+❌ **Simple CRUD applications** - If you're just reading and writing data, REST API might be simpler
 
-❌ **Synchronous workflows requiring immediate responses**
-- "Process payment and immediately return success/failure"
+❌ **Synchronous workflows requiring immediate responses** - "Process payment and immediately return success/failure"
 
-❌ **Small teams without distributed systems experience**
-- EDA adds operational complexity
+❌ **Small teams without distributed systems experience** - EDA adds operational complexity
 
-❌ **Systems requiring strong consistency**
-- EDA is eventually consistent by nature
+❌ **Systems requiring strong consistency** - EDA is eventually consistent by nature
 
-❌ **Tight budget constraints**
-- Event brokers add infrastructure costs
+❌ **Tight budget constraints** - Event brokers add infrastructure costs
 
 ---
 
@@ -952,40 +677,29 @@ EDA might be overkill for:
 
 ## Try It Yourself: Your First Event-Driven Application
 
-Now that you understand the theory, let's see Event-Driven Architecture in action. We'll build a simple producer-consumer application that demonstrates the core concepts we've discussed.
+Now that you understand the theory, let's see Event-Driven Architecture in action. We'll build a simple producer-consumer application that demonstrates the core concepts.
 
 ### What We'll Build
 
-A simple message producer that sends events to Kafka, and a consumer that reads them. This demonstrates:
-
-- **Event Production** - Publishing events without knowing who consumes them
-- **Event Consumption** - Reacting to events independently
-- **Decoupling** - Producer and consumer don't know about each other
-- **Asynchronous Communication** - Messages flow through Kafka broker
-
-This is the simplest possible EDA example, perfect for understanding the fundamentals.
+A simple message producer that sends events to Kafka, and a consumer that reads them. This demonstrates event production, consumption, decoupling, and asynchronous communication - the core principles of EDA.
 
 ### Prerequisites
-
-Before we start, make sure you have:
 
 - **Docker** installed (for running Kafka locally)
 - **.NET 8.0 SDK**
 - **Git** (to clone the repository)
 
-If you don't have Docker yet, don't worry - we'll guide you through the setup.
-
 <div class="try-it-yourself-links">
 
 **📚 Resources:**
-- **[GitHub Repository](https://github.com/tomakazoo/kafka-event-driven-architecture) → `examples/01-fundamentals/`** - Complete working code examples
-- **[Complete Setup Guide](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/docs/QUICKSTART.md)** - Detailed setup instructions
+- **[GitHub Repository](https://github.com/tomakazoo/kafka-event-driven-architecture)** → `examples/01-fundamentals/` - Complete working code
+- **[Complete Setup Guide](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/docs/QUICKSTART.md)** - Detailed instructions
 
 </div>
 
-### Step 1: Quick Setup
+### Quick Setup
 
-First, let's get Kafka running locally. We'll use Docker Compose to spin up a complete Kafka environment in minutes.
+Get Kafka running locally with Docker Compose:
 
 ```bash
 # Clone the repository
@@ -999,19 +713,9 @@ cd kafka-event-driven-architecture
 ./scripts/verify-docker.sh
 ```
 
-**What just happened?**
+This starts Zookeeper, Kafka Broker (port 9092), Schema Registry, and Kafka UI (http://localhost:8080).
 
-Docker Compose started four services:
-- **Zookeeper** - Coordinates the Kafka cluster
-- **Kafka Broker** - The event broker (port 9092)
-- **Schema Registry** - Manages data schemas
-- **Kafka UI** - Web interface at http://localhost:8080
-
-Your Kafka cluster is now running locally! 🎉
-
-### Step 2: Create a Producer
-
-A producer publishes events to Kafka. Let's create a simple one in C#:
+### Create a Producer
 
 ```csharp
 using Confluent.Kafka;
@@ -1021,75 +725,30 @@ class BasicProducer
 {
     static async Task Main()
     {
-        var config = new ProducerConfig
-        {
-            BootstrapServers = "localhost:9092"
-        };
-
+        var config = new ProducerConfig { BootstrapServers = "localhost:9092" };
         using var producer = new ProducerBuilder<string, string>(config).Build();
-        var topic = "my-topic";
 
         for (int i = 0; i < 5; i++)
         {
             var message = new { id = i, value = $"Message {i}" };
-            var result = await producer.ProduceAsync(
-                topic,
-                new Message<string, string>
-                {
-                    Key = $"key-{i}",
-                    Value = JsonSerializer.Serialize(message)
+            await producer.ProduceAsync("my-topic", 
+                new Message<string, string> { 
+                    Key = $"key-{i}", 
+                    Value = JsonSerializer.Serialize(message) 
                 });
-            
-            Console.WriteLine($"✅ Delivered to {result.TopicPartitionOffset}");
+            Console.WriteLine($"✅ Delivered message {i}");
         }
-        
-        producer.Flush(TimeSpan.FromSeconds(5));
     }
 }
 ```
 
-**What this code does:**
-
-1. Creates a producer connected to `localhost:9092`
-2. Publishes 5 messages to topic `my-topic`
-3. Each message has a key and JSON value
-4. Kafka auto-creates the topic when the first message arrives
-
-**Run it:**
-
+Run it:
 ```bash
 cd examples/01-fundamentals/dotnet
 dotnet run --project BasicProducer.csproj
 ```
 
-**Expected output:**
-
-```
-🚀 Starting Kafka Producer...
-📡 Connecting to: localhost:9092
-✅ Producer created successfully
-📤 Producing to topic: my-topic
-✅ Delivered to my-topic [[0]] @0
-✅ Delivered to my-topic [[0]] @1
-✅ Delivered to my-topic [[0]] @2
-✅ Delivered to my-topic [[0]] @3
-✅ Delivered to my-topic [[0]] @4
-✅ All messages delivered successfully!
-```
-
-**What happened?**
-
-- The producer sent 5 messages to Kafka
-- Kafka stored them in partition 0 of `my-topic`
-- Each message got an offset (0, 1, 2, 3, 4)
-- The messages are now **persisted** in Kafka, waiting to be consumed
-
-![Producer Success](/images/eda/producer-success.png)
-*Producer successfully delivering messages to Kafka*
-
-### Step 3: Create a Consumer
-
-Now let's create a consumer that reads these messages:
+### Create a Consumer
 
 ```csharp
 using Confluent.Kafka;
@@ -1108,123 +767,42 @@ class BasicConsumer
         using var consumer = new ConsumerBuilder<string, string>(config).Build();
         consumer.Subscribe("my-topic");
 
-        var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) =>
+        while (true)
         {
-            e.Cancel = true;
-            cts.Cancel();
-        };
-
-        try
-        {
-            while (!cts.Token.IsCancellationRequested)
-            {
-                var result = consumer.Consume(cts.Token);
-                Console.WriteLine($"Received: {result.Message.Value}");
-            }
-        }
-        finally
-        {
-            consumer.Close();
+            var result = consumer.Consume();
+            Console.WriteLine($"Received: {result.Message.Value}");
         }
     }
 }
 ```
 
-**What this code does:**
-
-1. Creates a consumer in group `dotnet-consumer-group`
-2. Subscribes to `my-topic`
-3. Reads from the **earliest** offset (gets all messages)
-4. Continuously polls for new messages
-5. Prints each message to console
-
-**Run it:**
-
+Run it in a new terminal:
 ```bash
-# In a new terminal
 cd examples/01-fundamentals/dotnet
 dotnet run --project BasicConsumer.csproj
 ```
 
-**Expected output:**
+### View Events in Kafka UI
 
-```
-Received: {"id":0,"value":"Message 0"}
-Received: {"id":1,"value":"Message 1"}
-Received: {"id":2,"value":"Message 2"}
-Received: {"id":3,"value":"Message 3"}
-Received: {"id":4,"value":"Message 4"}
-(waiting for more messages...)
-```
-
-**What happened?**
-
-- The consumer read all 5 messages we produced earlier
-- Messages were delivered in order
-- The consumer is now waiting for new messages
-- Press Ctrl+C to stop it
-
-![Consumer Success](/images/eda/consumer-success.png)
-*Consumer successfully receiving messages from Kafka*
-
-### Step 4: View Events in Kafka UI
-
-Kafka UI provides a visual interface to explore your events. Open **http://localhost:8080** in your browser.
-
-**Navigate to:** Topics → my-topic → Messages
-
-![Kafka UI Messages](/images/eda/kafka-ui-messages.png)
-*Viewing messages in Kafka UI - showing all messages with keys, values, and timestamps*
-
-**What you can see:**
-
-- **All messages** with their keys and values
-- **JSON formatted** nicely for readability
-- **Timestamps** showing when each message was produced
-- **Partition and offset** information
-- **Message metadata** (headers, size, etc.)
-
-**Try this:**
-
-1. Keep the consumer running
-2. Run the producer again in another terminal
-3. Watch the consumer **immediately** display the new messages
-4. See the new messages appear in Kafka UI
-
-This demonstrates Kafka's **real-time streaming** capability!
+Open http://localhost:8080 and navigate to Topics → my-topic → Messages to see all your events with timestamps, keys, and values.
 
 ### What You Just Learned
 
-Congratulations! You've just built your first event-driven application. Here's what happened:
-
 ✅ **Events are immutable** - Once published, they're stored permanently in Kafka
 
-✅ **Producers don't know consumers** - The producer just publishes events. It doesn't know who (or if anyone) is listening.
+✅ **Producers don't know consumers** - The producer just publishes events without knowing who's listening
 
-✅ **Consumers react independently** - The consumer reads events at its own pace, independently of the producer.
+✅ **Consumers react independently** - The consumer reads events at its own pace
 
-✅ **Decoupling through events** - Producer and consumer are completely decoupled. They only know about Kafka, not each other.
+✅ **Decoupling through events** - Producer and consumer only know about Kafka, not each other
 
-✅ **Asynchronous by default** - Messages flow through Kafka asynchronously. The producer doesn't wait for consumers.
+✅ **Asynchronous by default** - Messages flow through Kafka without producers waiting for consumers
 
-✅ **Events persist** - Messages are stored on disk. Consumers can re-read them, and new consumers can read historical events.
+✅ **Events persist** - Messages are stored on disk and can be re-read
 
-This simple example demonstrates the core principles of Event-Driven Architecture. In Part 4, we'll build a complete microservices system with multiple services communicating through events.
+**Try experimenting:** Create multiple consumers in the same group, or different groups. Stop and restart consumers. Run the producer again while the consumer is watching.
 
-### Next Steps with This Example
-
-You've seen EDA in action! Here's what you can try next:
-
-**Experiment with the code:**
-- Modify the producer to send different messages
-- Create multiple consumers in the same group
-- Create consumers in different groups
-- Try stopping and restarting consumers
-
-**Explore the full example:**
-- [GitHub Repository](https://github.com/tomakazoo/kafka-event-driven-architecture) → `examples/01-fundamentals/`
-- [Complete Setup Guide](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/docs/QUICKSTART.md)
+[Full code examples available in the GitHub repository](https://github.com/tomakazoo/kafka-event-driven-architecture)
 
 </div>
 
@@ -1257,32 +835,6 @@ You've seen EDA in action! Here's what you can try next:
 3. Add more event-driven workflows
 4. Refine based on learnings
 
-## Common Misconceptions
-
-### Misconception 1: "EDA means no synchronous communication"
-
-**Reality:** EDA and REST APIs can coexist. Use events for notifications and async workflows. Use APIs for queries and sync operations.
-
-```csharp
-// Query - Use REST API
-GET /orders/ORD-123  // Synchronous, immediate response
-
-// Command - Use Events
-POST /orders  // Create order, publish event, let services react asynchronously
-```
-
-### Misconception 2: "EDA solves all problems"
-
-**Reality:** EDA introduces complexity. Only use it when the benefits outweigh the costs.
-
-### Misconception 3: "Events should be tiny"
-
-**Reality:** Events should be self-contained with enough data for consumers to act without additional calls.
-
-### Misconception 4: "EDA is only for big companies"
-
-**Reality:** Even small applications can benefit from EDA's decoupling and flexibility.
-
 ## Next Steps
 
 In Part 2, we'll dive deep into event design:
@@ -1294,7 +846,7 @@ In Part 2, we'll dive deep into event design:
 
 Event-Driven Architecture represents a fundamental shift in how we think about system design. Instead of orchestrating every action, we choreograph responses to events. It's the difference between a conductor directing every musician and musicians who know how to respond when they hear their cue.
 
-Ready to design great events? Let's move on to Part 2! 🚀
+Ready to design great events? Let's move on to  [Part 2](part-02-event-patterns-and-design) - Event Design! 🚀
 
 ---
 
@@ -1304,4 +856,3 @@ Ready to design great events? Let's move on to Part 2! 🚀
 3. Benefits: loose coupling, scalability, resilience, flexibility
 4. Use when multiple systems react to the same occurrence
 5. Start small and iterate
-
