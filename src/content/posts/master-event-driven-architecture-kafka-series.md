@@ -87,18 +87,20 @@ All source code, complete examples, and runnable implementations from this serie
 ### **[Part 4: Hands-On Kafka](/blog/part-04-hands-on-kafka)**
 
 **What you'll learn:**
-- Complete Docker Compose Kafka cluster setup (3 brokers)
-- Building a full e-commerce order processing system
+- Complete Docker Compose Kafka setup (single broker with Schema Registry)
+- Building a full e-commerce order processing system with C# (.NET)
 - Order Service (ASP.NET Core REST API + Kafka producer)
-- Email, Inventory, and Analytics consumer services
+- Customer, Inventory, and Shipping services (consumer-producer pattern)
+- Event coordination: Shipping service consuming from multiple topics
 - Consumer group mechanics and parallel processing
 - Testing failure scenarios and event replay
-- Monitoring consumer lag and system health
+- Monitoring consumer lag and system health with Kafka UI
 
 **Key Outcomes:**<br>
-✅ Set up Kafka clusters locally  
-✅ Build complete event-driven applications  
+✅ Set up Kafka locally with Docker Compose  
+✅ Build complete event-driven applications in C#  
 ✅ Handle failures and scaling gracefully  
+✅ Implement event coordination patterns  
 
 ---
 
