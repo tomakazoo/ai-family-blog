@@ -36,7 +36,7 @@ All source code, complete examples, and runnable implementations from this serie
 
 ## 📖 Series Overview
 
-### **[Part 1: Introduction to Event-Driven Architecture](/blog/part-01-introduction-to-eda)**
+### **[Part 1: Introduction to Event-Driven Architecture - Building Your First Kafka Example](/blog/part-01-introduction-to-eda)**
 
 **What you'll learn:**
 - Why traditional request-response systems fail at scale
@@ -376,7 +376,7 @@ This series represents **months of research and implementation work** to create 
 
 ## 🚀 Start Your Journey
 
-**Ready to begin?** Head to [Part 1: Introduction to Event-Driven Architecture](part-01-introduction-to-eda) and start building your event-driven expertise today!
+**Ready to begin?** Head to [Part 1: Introduction to Event-Driven Architecture - Building Your First Kafka Example](part-01-introduction-to-eda) and start building your event-driven expertise today!
 
 Each part builds on the previous, taking you from fundamentals to advanced production operations. The code examples work, the diagrams clarify complex concepts, and the explanations ensure you understand not just how, but why.
 

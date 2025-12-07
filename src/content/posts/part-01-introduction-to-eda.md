@@ -1,12 +1,12 @@
 ---
-title: "What Is Event-Driven Architecture?"
+title: "Introduction to Event-Driven Architecture - Building Your First Kafka Example"
 date: "2025-10-05"
 excerpt: "A Beginner's Guide"
 tags: ["EDA", "Kafka", "Production-Ready", "Event-Driven", "Architecture"]
 coverImage: "/images/blog/intro-eda.jpg"
 ---
 
-# Part 1: What Is Event-Driven Architecture? A Beginner's Guide
+# Part 1: Introduction to Event-Driven Architecture - Building Your First Kafka Example
 
 > **💻 Language Note:** All code examples in this post are written in **C#**. Python implementations will be added in the future following the same patterns and concepts demonstrated here.
 

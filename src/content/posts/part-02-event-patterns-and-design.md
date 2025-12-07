@@ -51,41 +51,77 @@ sequenceDiagram
 ```
 
 **Implementation:**
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+using System;
+using System.Collections.Generic;
+// Producer - Minimal event
+public class OrderService
+{
+    private IDatabase db;
+    private IEventPublisher eventPublisher;
 
-```python
-# Producer - Minimal event
-class OrderService:
-    def place_order(self, order):
-        # Save order to database
-        self.db.save(order)
-        
-        # Publish lightweight event
-        event = {
-            'eventType': 'OrderPlaced',
-            'eventId': str(uuid.uuid4()),
-            'timestamp': datetime.utcnow().isoformat(),
-            'data': {
-                'orderId': order.id,
-                'customerId': order.customer_id,
-                # Minimal data - just identifiers
+    public OrderService(IDatabase database, IEventPublisher publisher)
+    {
+        db = database;
+        eventPublisher = publisher;
+    }
+
+    public void PlaceOrder(Order order)
+    {
+        // Save order to database
+        db.Save(order);
+
+        // Publish lightweight event
+        var eventPayload = new Dictionary<string, object>
+        {
+            ["eventType"] = "OrderPlaced",
+            ["eventId"] = Guid.NewGuid().ToString(),
+            ["timestamp"] = DateTime.UtcNow.ToString("o"),
+            ["data"] = new Dictionary<string, object>
+            {
+                ["orderId"] = order.Id,
+                ["customerId"] = order.CustomerId
+                // Minimal data - just identifiers
             }
-        }
-        
-        self.event_publisher.publish('orders', event)
+        };
 
-# Consumer - Fetches full details
-class EmailService:
-    def handle_order_placed(self, event):
-        order_id = event['data']['orderId']
-        
-        # Fetch full order details via API
-        order_details = self.order_api_client.get_order(order_id)
-        
-        # Now send email with full details
-        self.send_confirmation_email(
-            to=order_details['customerEmail'],
-            order=order_details
-        )
+        eventPublisher.Publish("orders", eventPayload);
+    }
+}
+// Consumer - Fetches full details
+public class EmailService
+{
+    private IOrderApiClient orderApiClient;
+
+    public EmailService(IOrderApiClient apiClient)
+    {
+        orderApiClient = apiClient;
+    }
+
+    public void HandleOrderPlaced(Dictionary<string, object> eventPayload)
+    {
+        var data = (Dictionary<string, object>)eventPayload["data"];
+        string orderId = data["orderId"].ToString();
+
+        // Fetch full order details via API
+        var orderDetails = orderApiClient.GetOrder(orderId);
+
+        // Now send email with full details
+        SendConfirmationEmail(
+            to: orderDetails["customerEmail"].ToString(),
+            order: orderDetails
+        );
+    }
+
+    private void SendConfirmationEmail(string to, Dictionary<string, object> order)
+    {
+        // Implementation to send email
+    }
+}
+
+// Supporting interface and class definitions are assumed here
+// such as IDatabase, IEventPublisher, IOrderApiClient, and Order class.
 ```
 
 **Pros:**
@@ -107,9 +143,9 @@ class EmailService:
 - Source service has good uptime SLA
 
 **Real-world example:**
-
-```python
-# GitHub webhook - minimal notification
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// GitHub webhook - minimal notification
 {
     "eventType": "PullRequestOpened",
     "repositoryId": "repo-123",
@@ -117,8 +153,9 @@ class EmailService:
     "timestamp": "2025-11-01T10:30:00Z"
 }
 
-# Consumer fetches details via GitHub API
-pr_details = github_api.get_pull_request("repo-123", "pr-456")
+
+// Consumer fetches details via GitHub API
+pr_details = github_api.get_pull_request("repo-123", "pr-456");
 ```
 
 ### Pattern 2: Event-Carried State Transfer
@@ -153,126 +190,189 @@ sequenceDiagram
 ```
 
 **Implementation:**
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
-```python
-# Producer - Full data in event
-class OrderService:
-    def place_order(self, order):
-        # Save order to database
-        self.db.save(order)
+// Producer - Full data in event
+public class OrderService
+{
+    private IDatabase _db;
+    private IEventPublisher _eventPublisher;
+
+    public OrderService(IDatabase db, IEventPublisher eventPublisher)
+    {
+        _db = db;
+        _eventPublisher = eventPublisher;
+    }
+
+    public void PlaceOrder(Order order)
+    {
+        // Save order to database
+        _db.Save(order);
         
-        # Publish event with ALL necessary data
-        event = {
-            'eventType': 'OrderPlaced',
-            'eventId': str(uuid.uuid4()),
-            'eventVersion': '1.0',
-            'timestamp': datetime.utcnow().isoformat(),
-            'source': 'order-service',
-            'correlationId': str(uuid.uuid4()),
-            'data': {
-                # Identifiers
-                'orderId': order.id,
-                'customerId': order.customer_id,
+        // Publish event with ALL necessary data
+        var eventObj = new
+        {
+            eventType = "OrderPlaced",
+            eventId = Guid.NewGuid().ToString(),
+            eventVersion = "1.0",
+            timestamp = DateTime.UtcNow.ToString("o"),
+            source = "order-service",
+            correlationId = Guid.NewGuid().ToString(),
+            data = new
+            {
+                // Identifiers
+                orderId = order.Id,
+                customerId = order.CustomerId,
                 
-                # Customer info (denormalized)
-                'customer': {
-                    'id': order.customer.id,
-                    'email': order.customer.email,
-                    'name': order.customer.name,
-                    'phone': order.customer.phone
+                // Customer info (denormalized)
+                customer = new
+                {
+                    id = order.Customer.Id,
+                    email = order.Customer.Email,
+                    name = order.Customer.Name,
+                    phone = order.Customer.Phone
                 },
                 
-                # Order details
-                'orderDate': order.created_at.isoformat(),
-                'totalAmount': float(order.total_amount),
-                'currency': order.currency,
-                'status': order.status,
+                // Order details
+                orderDate = order.CreatedAt.ToString("o"),
+                totalAmount = (double)order.TotalAmount,
+                currency = order.Currency,
+                status = order.Status,
                 
-                # Line items (complete info)
-                'items': [
-                    {
-                        'productId': item.product_id,
-                        'productName': item.product_name,
-                        'productSku': item.product_sku,
-                        'quantity': item.quantity,
-                        'unitPrice': float(item.unit_price),
-                        'totalPrice': float(item.total_price),
-                        'imageUrl': item.product_image_url
-                    } for item in order.items
-                ],
+                // Line items (complete info)
+                items = order.Items.Select(item => new
+                {
+                    productId = item.ProductId,
+                    productName = item.ProductName,
+                    productSku = item.ProductSku,
+                    quantity = item.Quantity,
+                    unitPrice = (double)item.UnitPrice,
+                    totalPrice = (double)item.TotalPrice,
+                    imageUrl = item.ProductImageUrl
+                }).ToArray(),
                 
-                # Shipping info
-                'shippingAddress': {
-                    'street': order.shipping_address.street,
-                    'city': order.shipping_address.city,
-                    'state': order.shipping_address.state,
-                    'postalCode': order.shipping_address.postal_code,
-                    'country': order.shipping_address.country
+                // Shipping info
+                shippingAddress = new
+                {
+                    street = order.ShippingAddress.Street,
+                    city = order.ShippingAddress.City,
+                    state = order.ShippingAddress.State,
+                    postalCode = order.ShippingAddress.PostalCode,
+                    country = order.ShippingAddress.Country
                 },
                 
-                # Payment info (safe subset)
-                'payment': {
-                    'method': order.payment_method,
-                    'last4': order.payment_last4,
-                    'status': 'completed'
+                // Payment info (safe subset)
+                payment = new
+                {
+                    method = order.PaymentMethod,
+                    last4 = order.PaymentLast4,
+                    status = "completed"
                 }
             }
+        };
+        
+        _eventPublisher.Publish("orders", eventObj);
+    }
+}
+
+// Consumer - Fully autonomous
+public class EmailService
+{
+    public void HandleOrderPlaced(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        var orderData = data;
+        
+        // All data is in the event - NO API call needed!
+        var emailContent = RenderEmailTemplate(
+            template: "order_confirmation",
+            customerName: ((Dictionary<string, object>)orderData["customer"])["name"].ToString(),
+            orderId: orderData["orderId"].ToString(),
+            items: (List<object>)orderData["items"],
+            total: (double)orderData["totalAmount"],
+            shippingAddress: (Dictionary<string, object>)orderData["shippingAddress"]
+        );
+        
+        SendEmail(
+            to: ((Dictionary<string, object>)orderData["customer"])["email"].ToString(),
+            subject: $"Order Confirmation - {orderData["orderId"]}",
+            content: emailContent
+        );
+        
+        // Service is fully autonomous!
+    }
+    
+    private string RenderEmailTemplate(string template, string customerName, string orderId, List<object> items, double total, Dictionary<string, object> shippingAddress)
+    {
+        // Email template rendering logic
+        return "";
+    }
+    
+    private void SendEmail(string to, string subject, string content)
+    {
+        // Email sending logic
+    }
+}
+
+public class InventoryService
+{
+    public void HandleOrderPlaced(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        var orderData = data;
+        var items = (List<object>)orderData["items"];
+        
+        // Reduce stock for each item - all data is here
+        foreach (var itemObj in items)
+        {
+            var item = (Dictionary<string, object>)itemObj;
+            ReduceStock(
+                productId: item["productId"].ToString(),
+                quantity: (int)item["quantity"],
+                orderId: orderData["orderId"].ToString()
+            );
         }
         
-        self.event_publisher.publish('orders', event)
+        Console.WriteLine($"✅ Inventory updated for order {orderData["orderId"]}");
+    }
+    
+    private void ReduceStock(string productId, int quantity, string orderId)
+    {
+        // Inventory reduction logic
+    }
+}
 
-# Consumer - Fully autonomous
-class EmailService:
-    def handle_order_placed(self, event):
-        order_data = event['data']
+public class AnalyticsService
+{
+    public void HandleOrderPlaced(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        var orderData = data;
+        var items = (List<object>)orderData["items"];
         
-        # All data is in the event - NO API call needed!
-        email_content = self.render_email_template(
-            template='order_confirmation',
-            customer_name=order_data['customer']['name'],
-            order_id=order_data['orderId'],
-            items=order_data['items'],
-            total=order_data['totalAmount'],
-            shipping_address=order_data['shippingAddress']
-        )
-        
-        self.send_email(
-            to=order_data['customer']['email'],
-            subject=f"Order Confirmation - {order_data['orderId']}",
-            content=email_content
-        )
-        
-        # Service is fully autonomous!
-
-class InventoryService:
-    def handle_order_placed(self, event):
-        order_data = event['data']
-        
-        # Reduce stock for each item - all data is here
-        for item in order_data['items']:
-            self.reduce_stock(
-                product_id=item['productId'],
-                quantity=item['quantity'],
-                order_id=order_data['orderId']
-            )
-        
-        print(f"✅ Inventory updated for order {order_data['orderId']}")
-
-class AnalyticsService:
-    def handle_order_placed(self, event):
-        order_data = event['data']
-        
-        # Record comprehensive analytics - all data available
-        self.record_metrics({
-            'event_type': 'order_placed',
-            'order_id': order_data['orderId'],
-            'customer_id': order_data['customerId'],
-            'amount': order_data['totalAmount'],
-            'currency': order_data['currency'],
-            'item_count': len(order_data['items']),
-            'country': order_data['shippingAddress']['country'],
-            'timestamp': event['timestamp']
-        })
+        // Record comprehensive analytics - all data available
+        RecordMetrics(new
+        {
+            event_type = "order_placed",
+            order_id = orderData["orderId"].ToString(),
+            customer_id = orderData["customerId"].ToString(),
+            amount = (double)orderData["totalAmount"],
+            currency = orderData["currency"].ToString(),
+            item_count = items.Count,
+            country = ((Dictionary<string, object>)orderData["shippingAddress"])["country"].ToString(),
+            timestamp = eventObj["timestamp"].ToString()
+        });
+    }
+    
+    private void RecordMetrics(object metrics)
+    {
+        // Metrics recording logic
+    }
+}
 ```
 
 **Pros:**
@@ -297,50 +397,67 @@ class AnalyticsService:
 - Multiple consumers need the same data
 
 **Size considerations:**
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+using System.Text;
+using System.Text.Json;
 
-```python
-# Calculate event size
-import sys
+// Calculate event size
+var eventObj = new { /* Your event */ };
+var eventJson = JsonSerializer.Serialize(eventObj);
+var eventSizeBytes = Encoding.UTF8.GetByteCount(eventJson);
 
-event = {...}  # Your event
-event_size_bytes = sys.getsizeof(json.dumps(event))
+Console.WriteLine($"Event size: {eventSizeBytes / 1024.0:F2} KB");
 
-print(f"Event size: {event_size_bytes / 1024:.2f} KB")
-
-# Rule of thumb:
-# < 10 KB: Perfect for event-carried state transfer
-# 10-100 KB: Acceptable, consider compression
-# > 100 KB: Consider event notification + API call
-# > 1 MB: Definitely use event notification or store in S3/blob storage
+// Rule of thumb:
+// < 10 KB: Perfect for event-carried state transfer
+// 10-100 KB: Acceptable, consider compression
+// > 100 KB: Consider event notification + API call
+// > 1 MB: Definitely use event notification or store in S3/blob storage
 ```
 
 **Handling large data:**
-
-```python
-# For very large data (images, documents)
-event = {
-    'eventType': 'DocumentUploaded',
-    'data': {
-        'documentId': 'doc-123',
-        'documentUrl': 's3://bucket/documents/doc-123.pdf',  # Reference, not content
-        'documentSize': 5242880,  # 5 MB
-        'mimeType': 'application/pdf',
-        'metadata': {
-            'filename': 'contract.pdf',
-            'uploadedBy': 'user-456'
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// For very large data (images, documents)
+var eventObj = new
+{
+    eventType = "DocumentUploaded",
+    data = new
+    {
+        documentId = "doc-123",
+        documentUrl = "s3://bucket/documents/doc-123.pdf", // Reference, not content
+        documentSize = 5242880, // 5 MB
+        mimeType = "application/pdf",
+        metadata = new
+        {
+            filename = "contract.pdf",
+            uploadedBy = "user-456"
         }
     }
-}
+};
 
-# Consumers download from S3 if needed
-class DocumentProcessorService:
-    def handle_document_uploaded(self, event):
-        doc_url = event['data']['documentUrl']
+// Consumers download from S3 if needed
+public class DocumentProcessorService
+{
+    public void HandleDocumentUploaded(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        var docUrl = data["documentUrl"].ToString();
         
-        # Download only if needed
-        if event['data']['mimeType'] == 'application/pdf':
-            doc_content = self.s3_client.download(doc_url)
-            self.process_pdf(doc_content)
+        // Download only if needed
+        if (data["mimeType"].ToString() == "application/pdf")
+        {
+            var docContent = _s3Client.Download(docUrl);
+            ProcessPdf(docContent);
+        }
+    }
+    
+    private void ProcessPdf(byte[] content)
+    {
+        // PDF processing logic
+    }
+}
 ```
 
 ### Pattern 3: Event Sourcing
@@ -368,190 +485,265 @@ graph TB
 ```
 
 **Traditional vs. Event Sourcing:**
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
-```python
-# === TRADITIONAL APPROACH ===
-class OrderRepository:
-    def update_order(self, order_id, updates):
-        # Current state is overwritten
-        self.db.update('orders', {'id': order_id}, updates)
-        # History is lost!
+// === TRADITIONAL APPROACH ===
+public class OrderRepository
+{
+    public void UpdateOrder(string orderId, Dictionary<string, object> updates)
+    {
+        // Current state is overwritten
+        _db.Update("orders", new { id = orderId }, updates);
+        // History is lost!
+    }
+}
 
-# Database state:
-# orders table: {id: 'ORD-123', status: 'SHIPPED', total: 99.99}
-# We don't know:
-# - When was it created?
-# - What was the original total?
-# - When did status change?
-# - Who changed it?
+// Database state:
+// orders table: {id: 'ORD-123', status: 'SHIPPED', total: 99.99}
+// We don't know:
+// - When was it created?
+// - What was the original total?
+// - When did status change?
+// - Who changed it?
 
-# === EVENT SOURCING APPROACH ===
-class Order:
-    def __init__(self):
-        self.id = None
-        self.customer_id = None
-        self.items = []
-        self.shipping_address = None
-        self.status = None
-        self.uncommitted_events = []
+// === EVENT SOURCING APPROACH ===
+public class Order
+{
+    public string Id { get; set; }
+    public string CustomerId { get; set; }
+    public List<OrderItem> Items { get; set; } = new List<OrderItem>();
+    public ShippingAddress ShippingAddress { get; set; }
+    public string Status { get; set; }
+    public List<object> UncommittedEvents { get; set; } = new List<object>();
     
-    # Commands that produce events
-    def create(self, order_id, customer_id):
-        event = OrderCreated(
-            order_id=order_id,
-            customer_id=customer_id,
-            timestamp=datetime.utcnow()
-        )
-        self.apply(event)
-        self.uncommitted_events.append(event)
+    // Commands that produce events
+    public void Create(string orderId, string customerId)
+    {
+        var @event = new OrderCreated
+        {
+            OrderId = orderId,
+            CustomerId = customerId,
+            Timestamp = DateTime.UtcNow
+        };
+        Apply(@event);
+        UncommittedEvents.Add(@event);
+    }
     
-    def add_item(self, product_id, quantity, price):
-        event = ItemAdded(
-            order_id=self.id,
-            product_id=product_id,
-            quantity=quantity,
-            price=price,
-            timestamp=datetime.utcnow()
-        )
-        self.apply(event)
-        self.uncommitted_events.append(event)
+    public void AddItem(string productId, int quantity, decimal price)
+    {
+        var @event = new ItemAdded
+        {
+            OrderId = Id,
+            ProductId = productId,
+            Quantity = quantity,
+            Price = price,
+            Timestamp = DateTime.UtcNow
+        };
+        Apply(@event);
+        UncommittedEvents.Add(@event);
+    }
     
-    def set_shipping_address(self, address):
-        event = ShippingAddressSet(
-            order_id=self.id,
-            address=address,
-            timestamp=datetime.utcnow()
-        )
-        self.apply(event)
-        self.uncommitted_events.append(event)
+    public void SetShippingAddress(ShippingAddress address)
+    {
+        var @event = new ShippingAddressSet
+        {
+            OrderId = Id,
+            Address = address,
+            Timestamp = DateTime.UtcNow
+        };
+        Apply(@event);
+        UncommittedEvents.Add(@event);
+    }
     
-    def submit(self):
-        if not self.items:
-            raise ValueError("Cannot submit order without items")
-        if not self.shipping_address:
-            raise ValueError("Cannot submit order without shipping address")
+    public void Submit()
+    {
+        if (Items.Count == 0)
+            throw new InvalidOperationException("Cannot submit order without items");
+        if (ShippingAddress == null)
+            throw new InvalidOperationException("Cannot submit order without shipping address");
         
-        event = OrderSubmitted(
-            order_id=self.id,
-            timestamp=datetime.utcnow()
-        )
-        self.apply(event)
-        self.uncommitted_events.append(event)
+        var @event = new OrderSubmitted
+        {
+            OrderId = Id,
+            Timestamp = DateTime.UtcNow
+        };
+        Apply(@event);
+        UncommittedEvents.Add(@event);
+    }
     
-    # Apply events to rebuild state
-    def apply(self, event):
-        if isinstance(event, OrderCreated):
-            self.id = event.order_id
-            self.customer_id = event.customer_id
-            self.status = 'CREATED'
-        
-        elif isinstance(event, ItemAdded):
-            self.items.append({
-                'product_id': event.product_id,
-                'quantity': event.quantity,
-                'price': event.price
-            })
-        
-        elif isinstance(event, ShippingAddressSet):
-            self.shipping_address = event.address
-        
-        elif isinstance(event, OrderSubmitted):
-            self.status = 'SUBMITTED'
+    // Apply events to rebuild state
+    public void Apply(object @event)
+    {
+        switch (@event)
+        {
+            case OrderCreated created:
+                Id = created.OrderId;
+                CustomerId = created.CustomerId;
+                Status = "CREATED";
+                break;
+            
+            case ItemAdded itemAdded:
+                Items.Add(new OrderItem
+                {
+                    ProductId = itemAdded.ProductId,
+                    Quantity = itemAdded.Quantity,
+                    Price = itemAdded.Price
+                });
+                break;
+            
+            case ShippingAddressSet addressSet:
+                ShippingAddress = addressSet.Address;
+                break;
+            
+            case OrderSubmitted submitted:
+                Status = "SUBMITTED";
+                break;
+        }
+    }
+}
 
-# Event Store
-class EventStore:
-    def __init__(self):
-        self.events = {}  # {aggregate_id: [events]}
+// Event Store
+public class EventStore
+{
+    private Dictionary<string, List<object>> _events = new Dictionary<string, List<object>>();
+    private IEventBus _eventBus;
     
-    def save_events(self, aggregate_id, events, expected_version=None):
-        # Optimistic locking
-        if expected_version is not None:
-            current_version = len(self.events.get(aggregate_id, []))
-            if current_version != expected_version:
-                raise ConcurrencyError("Version mismatch")
-        
-        if aggregate_id not in self.events:
-            self.events[aggregate_id] = []
-        
-        # Append events (never update)
-        self.events[aggregate_id].extend(events)
-        
-        # Publish to event bus
-        for event in events:
-            self.event_bus.publish(event)
+    public EventStore(IEventBus eventBus)
+    {
+        _eventBus = eventBus;
+    }
     
-    def get_events(self, aggregate_id, from_version=0):
-        return self.events.get(aggregate_id, [])[from_version:]
-
-# Repository
-class OrderRepository:
-    def __init__(self, event_store):
-        self.event_store = event_store
-    
-    def save(self, order, expected_version=None):
-        self.event_store.save_events(
-            order.id,
-            order.uncommitted_events,
-            expected_version
-        )
-        order.uncommitted_events = []
-    
-    def get(self, order_id):
-        # Rebuild order by replaying events
-        events = self.event_store.get_events(order_id)
+    public void SaveEvents(string aggregateId, List<object> events, int? expectedVersion = null)
+    {
+        // Optimistic locking
+        if (expectedVersion.HasValue)
+        {
+            var currentVersion = _events.ContainsKey(aggregateId) ? _events[aggregateId].Count : 0;
+            if (currentVersion != expectedVersion.Value)
+                throw new InvalidOperationException("Version mismatch");
+        }
         
-        order = Order()
-        for event in events:
-            order.apply(event)
+        if (!_events.ContainsKey(aggregateId))
+            _events[aggregateId] = new List<object>();
         
-        return order
+        // Append events (never update)
+        _events[aggregateId].AddRange(events);
+        
+        // Publish to event bus
+        foreach (var @event in events)
+            _eventBus.Publish(@event);
+    }
+    
+    public List<object> GetEvents(string aggregateId, int fromVersion = 0)
+    {
+        if (!_events.ContainsKey(aggregateId))
+            return new List<object>();
+        
+        return _events[aggregateId].Skip(fromVersion).ToList();
+    }
+}
 
-# Using it
-order = Order()
-order.create('ORD-123', 'CUST-456')
-order.add_item('PROD-001', 2, 29.99)
-order.add_item('PROD-002', 1, 49.99)
-order.set_shipping_address({
-    'street': '123 Main St',
-    'city': 'Boston',
-    'state': 'MA',
-    'zip': '02101'
-})
-order.submit()
+// Repository
+public class OrderRepository
+{
+    private EventStore _eventStore;
+    
+    public OrderRepository(EventStore eventStore)
+    {
+        _eventStore = eventStore;
+    }
+    
+    public void Save(Order order, int? expectedVersion = null)
+    {
+        _eventStore.SaveEvents(
+            order.Id,
+            order.UncommittedEvents,
+            expectedVersion
+        );
+        order.UncommittedEvents = new List<object>();
+    }
+    
+    public Order Get(string orderId)
+    {
+        // Rebuild order by replaying events
+        var events = _eventStore.GetEvents(orderId);
+        
+        var order = new Order();
+        foreach (var @event in events)
+            order.Apply(@event);
+        
+        return order;
+    }
+}
 
-repository.save(order)
+// Using it
+var order = new Order();
+order.Create("ORD-123", "CUST-456");
+order.AddItem("PROD-001", 2, 29.99m);
+order.AddItem("PROD-002", 1, 49.99m);
+order.SetShippingAddress(new ShippingAddress
+{
+    Street = "123 Main St",
+    City = "Boston",
+    State = "MA",
+    Zip = "02101"
+});
+order.Submit();
 
-# Event store now contains:
-# Event 1: OrderCreated(order_id='ORD-123', customer_id='CUST-456')
-# Event 2: ItemAdded(product_id='PROD-001', quantity=2, price=29.99)
-# Event 3: ItemAdded(product_id='PROD-002', quantity=1, price=49.99)
-# Event 4: ShippingAddressSet(address={...})
-# Event 5: OrderSubmitted(order_id='ORD-123')
+repository.Save(order);
 
-# Later, retrieve the order
-order = repository.get('ORD-123')  # Replays all 5 events
-print(order.status)  # 'SUBMITTED'
-print(len(order.items))  # 2
+// Event store now contains:
+// Event 1: OrderCreated(orderId: 'ORD-123', customerId: 'CUST-456')
+// Event 2: ItemAdded(productId: 'PROD-001', quantity: 2, price: 29.99)
+// Event 3: ItemAdded(productId: 'PROD-002', quantity: 1, price: 49.99)
+// Event 4: ShippingAddressSet(address: {...})
+// Event 5: OrderSubmitted(orderId: 'ORD-123')
+
+// Later, retrieve the order
+order = repository.Get("ORD-123"); // Replays all 5 events
+Console.WriteLine(order.Status); // 'SUBMITTED'
+Console.WriteLine(order.Items.Count); // 2
 ```
 
 **Time Travel - See State at Any Point:**
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+public Order GetOrderAtTimestamp(string orderId, DateTime timestamp)
+{
+    var events = _eventStore.GetEvents(orderId);
+    
+    // Filter events before timestamp
+    var historicalEvents = events
+        .Where(e => GetEventTimestamp(e) <= timestamp)
+        .ToList();
+    
+    // Replay to get historical state
+    var order = new Order();
+    foreach (var @event in historicalEvents)
+        order.Apply(@event);
+    
+    return order;
+}
 
-```python
-def get_order_at_timestamp(order_id, timestamp):
-    events = event_store.get_events(order_id)
-    
-    # Filter events before timestamp
-    historical_events = [e for e in events if e.timestamp <= timestamp]
-    
-    # Replay to get historical state
-    order = Order()
-    for event in historical_events:
-        order.apply(event)
-    
-    return order
+private DateTime GetEventTimestamp(object @event)
+{
+    // Extract timestamp from event based on event type
+    return @event switch
+    {
+        OrderCreated created => created.Timestamp,
+        ItemAdded added => added.Timestamp,
+        ShippingAddressSet addressSet => addressSet.Timestamp,
+        OrderSubmitted submitted => submitted.Timestamp,
+        _ => DateTime.MinValue
+    };
+}
 
-# What did the order look like yesterday?
-order_yesterday = get_order_at_timestamp('ORD-123', yesterday)
+// What did the order look like yesterday?
+var orderYesterday = GetOrderAtTimestamp("ORD-123", yesterday);
 ```
 
 **Snapshots for Performance:**
@@ -571,40 +763,55 @@ graph LR
     style B fill:#00b894
     style D fill:#00b894
 ```
-
-```python
-class EventStore:
-    def save_snapshot(self, aggregate_id, state, version):
-        self.snapshots[aggregate_id] = {
-            'state': state,
-            'version': version,
-            'timestamp': datetime.utcnow()
-        }
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+public class EventStore
+{
+    private Dictionary<string, Snapshot> _snapshots = new Dictionary<string, Snapshot>();
     
-    def load_from_snapshot(self, aggregate_id):
-        snapshot = self.snapshots.get(aggregate_id)
-        
-        if snapshot:
-            order = Order()
-            order.__dict__.update(snapshot['state'])
+    public void SaveSnapshot(string aggregateId, object state, int version)
+    {
+        _snapshots[aggregateId] = new Snapshot
+        {
+            State = state,
+            Version = version,
+            Timestamp = DateTime.UtcNow
+        };
+    }
+    
+    public Order LoadFromSnapshot(string aggregateId)
+    {
+        if (_snapshots.TryGetValue(aggregateId, out var snapshot))
+        {
+            var order = new Order();
+            // Restore state from snapshot (simplified)
+            // In real implementation, you'd deserialize the state
+            // order = JsonSerializer.Deserialize<Order>(snapshot.State);
             
-            # Load events after snapshot
-            events = self.get_events(aggregate_id, from_version=snapshot['version'])
-            for event in events:
-                order.apply(event)
+            // Load events after snapshot
+            var events = GetEvents(aggregateId, fromVersion: snapshot.Version);
+            foreach (var @event in events)
+                order.Apply(@event);
             
-            return order
-        else:
-            # No snapshot, replay all events
-            return self.load_from_events(aggregate_id)
+            return order;
+        }
+        else
+        {
+            // No snapshot, replay all events
+            return LoadFromEvents(aggregateId);
+        }
+    }
+}
 
-# Save snapshot every 100 events
-if len(events) % 100 == 0:
-    event_store.save_snapshot(
-        order.id,
-        order.__dict__,
-        version=len(events)
-    )
+// Save snapshot every 100 events
+if (events.Count % 100 == 0)
+{
+    eventStore.SaveSnapshot(
+        order.Id,
+        order, // In practice, serialize to JSON/bytes
+        version: events.Count
+    );
+}
 ```
 
 **Pros:**
@@ -630,27 +837,29 @@ if len(events) % 100 == 0:
 - Domain is naturally event-driven (banking transactions, medical records)
 
 **Real-world examples:**
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// Banking - Perfect for event sourcing
+var events = new List<object>
+{
+    new AccountOpened { AccountId = "ACC-123", InitialBalance = 1000 },
+    new MoneyDeposited { AccountId = "ACC-123", Amount = 500 },
+    new MoneyWithdrawn { AccountId = "ACC-123", Amount = 200 },
+    new InterestCredited { AccountId = "ACC-123", Amount = 2.50m }
+};
+// Current balance = replay events = 1302.50
+// Complete audit trail of every transaction
 
-```python
-# Banking - Perfect for event sourcing
-events = [
-    AccountOpened(account_id='ACC-123', initial_balance=1000),
-    MoneyDeposited(account_id='ACC-123', amount=500),
-    MoneyWithdrawn(account_id='ACC-123', amount=200),
-    InterestCredited(account_id='ACC-123', amount=2.50)
-]
-# Current balance = replay events = 1302.50
-# Complete audit trail of every transaction
-
-# Medical records - Event sourcing for compliance
-events = [
-    PatientAdmitted(patient_id='PAT-789', diagnosis='...'),
-    MedicationPrescribed(patient_id='PAT-789', medication='...'),
-    LabTestOrdered(patient_id='PAT-789', test='...'),
-    LabResultsRecorded(patient_id='PAT-789', results='...'),
-    PatientDischarged(patient_id='PAT-789')
-]
-# Complete medical history, HIPAA compliant audit trail
+// Medical records - Event sourcing for compliance
+var medicalEvents = new List<object>
+{
+    new PatientAdmitted { PatientId = "PAT-789", Diagnosis = "..." },
+    new MedicationPrescribed { PatientId = "PAT-789", Medication = "..." },
+    new LabTestOrdered { PatientId = "PAT-789", Test = "..." },
+    new LabResultsRecorded { PatientId = "PAT-789", Results = "..." },
+    new PatientDischarged { PatientId = "PAT-789" }
+};
+// Complete medical history, HIPAA compliant audit trail
 ```
 
 ## Event Design Principles
@@ -752,49 +961,51 @@ graph LR
 - `InventoryUpdated` - Fact
 
 **Why it matters:**
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// Command - prescriptive
+var commandEvent = new { eventType = "SendEmail", to = "customer@example.com" };
+// This tells consumers what to do. Only email service should react.
 
-```python
-# Command - prescriptive
-event = {'eventType': 'SendEmail', 'to': 'customer@example.com'}
-# This tells consumers what to do. Only email service should react.
-
-# Event - descriptive
-event = {'eventType': 'OrderPlaced', 'orderId': 'ORD-123', ...}
-# This states what happened. Multiple services can decide how to react:
-# - Email service: "I'll send an email"
-# - SMS service: "I'll send an SMS"
-# - Push notification service: "I'll send a push notification"
+// Event - descriptive
+var eventObj = new { eventType = "OrderPlaced", orderId = "ORD-123", /* ... */ };
+// This states what happened. Multiple services can decide how to react:
+// - Email service: "I'll send an email"
+// - SMS service: "I'll send an SMS"
+// - Push notification service: "I'll send a push notification"
 ```
 
 ### Principle 3: Include Essential Metadata
 
-```python
+```csharp
+var eventObj = new
 {
-    # Identity
-    "eventId": "evt_7a8b9c0d",  # Unique ID for deduplication
-    "eventType": "OrderPlaced",  # What happened
-    "eventVersion": "1.0",  # Schema version
+    // Identity
+    eventId = "evt_7a8b9c0d", // Unique ID for deduplication
+    eventType = "OrderPlaced", // What happened
+    eventVersion = "1.0", // Schema version
     
-    # Timing
-    "timestamp": "2025-11-01T10:30:00Z",  # When it happened
+    // Timing
+    timestamp = "2025-11-01T10:30:00Z", // When it happened
     
-    # Tracing
-    "correlationId": "corr_12345",  # Groups related events
-    "causationId": "evt_previous",  # The event that caused this one
+    // Tracing
+    correlationId = "corr_12345", // Groups related events
+    causationId = "evt_previous", // The event that caused this one
     
-    # Source
-    "source": "order-service",  # Which service produced this
-    "sourceVersion": "2.3.1",  # Version of producing service
+    // Source
+    source = "order-service", // Which service produced this
+    sourceVersion = "2.3.1", // Version of producing service
     
-    # Actor (for audit)
-    "userId": "user-789",  # Who triggered this
-    "userAgent": "Mozilla/5.0...",  # How they triggered it
+    // Actor (for audit)
+    userId = "user-789", // Who triggered this
+    userAgent = "Mozilla/5.0...", // How they triggered it
     
-    # Data
-    "data": {
+    // Data
+    data = new
+    {
         // Event payload
     }
-}
+};
 ```
 
 **Correlation ID for distributed tracing:**
@@ -826,48 +1037,55 @@ sequenceDiagram
 
 ### Principle 4: Design for Evolution
 
-```python
-# Version 1.0
+```csharp
+// Version 1.0
+var eventV1 = new
 {
-    "eventVersion": "1.0",
-    "eventType": "OrderPlaced",
-    "data": {
-        "orderId": "ORD-123",
-        "customerId": "CUST-456",
-        "totalAmount": 99.99
+    eventVersion = "1.0",
+    eventType = "OrderPlaced",
+    data = new
+    {
+        orderId = "ORD-123",
+        customerId = "CUST-456",
+        totalAmount = 99.99
     }
-}
+};
 
-# Version 1.1 - Adding optional fields (backward compatible)
+// Version 1.1 - Adding optional fields (backward compatible)
+var eventV1_1 = new
 {
-    "eventVersion": "1.1",
-    "eventType": "OrderPlaced",
-    "data": {
-        "orderId": "ORD-123",
-        "customerId": "CUST-456",
-        "totalAmount": 99.99,
-        "currency": "USD",  # New field with default
-        "taxAmount": 8.50   # New field with default
+    eventVersion = "1.1",
+    eventType = "OrderPlaced",
+    data = new
+    {
+        orderId = "ORD-123",
+        customerId = "CUST-456",
+        totalAmount = 99.99,
+        currency = "USD", // New field with default
+        taxAmount = 8.50  // New field with default
     }
-}
+};
 
-# Old consumers ignore new fields ✅
-# New consumers handle both versions ✅
+// Old consumers ignore new fields ✅
+// New consumers handle both versions ✅
 
-# Version 2.0 - Breaking change (carefully managed)
+// Version 2.0 - Breaking change (carefully managed)
+var eventV2 = new
 {
-    "eventVersion": "2.0",
-    "eventType": "OrderPlaced",
-    "data": {
-        "orderId": "ORD-123",
-        "customer": {  # Changed: nested object instead of just ID
-            "id": "CUST-456",
-            "email": "customer@example.com",
-            "name": "Jane Smith"
+    eventVersion = "2.0",
+    eventType = "OrderPlaced",
+    data = new
+    {
+        orderId = "ORD-123",
+        customer = new // Changed: nested object instead of just ID
+        {
+            id = "CUST-456",
+            email = "customer@example.com",
+            name = "Jane Smith"
         },
-        "totalAmount": 99.99
+        totalAmount = 99.99
     }
-}
+};
 ```
 
 **Schema evolution strategy:**
@@ -921,39 +1139,42 @@ graph TB
 
 **Finding the right granularity:**
 
-```python
-# Order example - granularity options
+```csharp
+// Order example - granularity options
 
-# Option 1: Too fine-grained ❌
-events = [
-    'OrderCreated',
-    'Item1Added',
-    'Item2Added',
-    'Item1QuantityIncreased',
-    'Item3Added',
-    'Item2Removed',
-    'ShippingAddressLineOneSet',
-    'ShippingAddressCitySet',
-    'ShippingAddressStateSet',
-    'PaymentMethodSet',
-    'OrderSubmitted'
-]
-# Too chatty, eventual consistency issues
+// Option 1: Too fine-grained ❌
+var fineGrainedEvents = new[]
+{
+    "OrderCreated",
+    "Item1Added",
+    "Item2Added",
+    "Item1QuantityIncreased",
+    "Item3Added",
+    "Item2Removed",
+    "ShippingAddressLineOneSet",
+    "ShippingAddressCitySet",
+    "ShippingAddressStateSet",
+    "PaymentMethodSet",
+    "OrderSubmitted"
+};
+// Too chatty, eventual consistency issues
 
-# Option 2: Too coarse-grained ❌
-events = [
-    'OrderCompleted'  # Everything in one event
-]
-# Loses important lifecycle stages
+// Option 2: Too coarse-grained ❌
+var coarseGrainedEvents = new[]
+{
+    "OrderCompleted" // Everything in one event
+};
+// Loses important lifecycle stages
 
-# Option 3: Just right ✅
-events = [
-    'OrderPlaced',      # Order submitted with all items
-    'PaymentReceived',  # Payment processed
-    'OrderShipped',     # Warehouse shipped it
-    'OrderDelivered'    # Customer received it
-]
-# Clear lifecycle, meaningful stages
+// Option 3: Just right ✅
+var justRightEvents = new[]
+{
+    "OrderPlaced",      // Order submitted with all items
+    "PaymentReceived",  // Payment processed
+    "OrderShipped",     // Warehouse shipped it
+    "OrderDelivered"    // Customer received it
+};
+// Clear lifecycle, meaningful stages
 ```
 
 ## Event Schema Evolution
@@ -975,196 +1196,234 @@ graph LR
 ### Strategy 1: Backward Compatibility (Safe)
 
 New producers can be consumed by old consumers.
-
-```python
-# Old consumer (v1.0)
-def handle_order_placed(event):
-    order_id = event['data']['orderId']
-    amount = event['data']['totalAmount']
-    # Ignores any new fields it doesn't know about ✅
-
-# New event (v1.1) adds optional field
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// Old consumer (v1.0)
+public void HandleOrderPlaced(Dictionary<string, object> eventObj)
 {
-    "eventVersion": "1.1",
-    "data": {
-        "orderId": "ORD-123",
-        "totalAmount": 99.99,
-        "currency": "USD"  # New field
-    }
+    var data = (Dictionary<string, object>)eventObj["data"];
+    var orderId = data["orderId"].ToString();
+    var amount = (double)data["totalAmount"];
+    // Ignores any new fields it doesn't know about ✅
 }
-# Old consumer still works! ✅
+
+// New event (v1.1) adds optional field
+var newEvent = new
+{
+    eventVersion = "1.1",
+    data = new
+    {
+        orderId = "ORD-123",
+        totalAmount = 99.99,
+        currency = "USD" // New field
+    }
+};
+// Old consumer still works! ✅
 ```
 
 ### Strategy 2: Forward Compatibility (Harder)
 
 Old producers can be consumed by new consumers.
-
-```python
-# New consumer (v1.1) expects currency field
-def handle_order_placed(event):
-    order_id = event['data']['orderId']
-    amount = event['data']['totalAmount']
-    currency = event['data'].get('currency', 'USD')  # Default if missing ✅
-
-# Old event (v1.0) without currency field
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// New consumer (v1.1) expects currency field
+public void HandleOrderPlaced(Dictionary<string, object> eventObj)
 {
-    "eventVersion": "1.0",
-    "data": {
-        "orderId": "ORD-123",
-        "totalAmount": 99.99
-        # No currency field
-    }
+    var data = (Dictionary<string, object>)eventObj["data"];
+    var orderId = data["orderId"].ToString();
+    var amount = (double)data["totalAmount"];
+    var currency = data.ContainsKey("currency") ? data["currency"].ToString() : "USD"; // Default if missing ✅
 }
-# New consumer handles it with default ✅
+
+// Old event (v1.0) without currency field
+var oldEvent = new
+{
+    eventVersion = "1.0",
+    data = new
+    {
+        orderId = "ORD-123",
+        totalAmount = 99.99
+        // No currency field
+    }
+};
+// New consumer handles it with default ✅
 ```
 
 ### Schema Registry Integration
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+using Confluent.Kafka;
+using Confluent.SchemaRegistry;
+using Confluent.SchemaRegistry.Serdes;
 
-```python
-from confluent_kafka import avro
-from confluent_kafka.avro import AvroProducer
-
-# Define schema in Avro
-value_schema_str = """
+// Define schema in Avro (JSON format)
+var valueSchemaStr = @"
 {
-   "type": "record",
-   "name": "Order",
-   "namespace": "com.example.ecommerce",
-   "fields": [
-       {"name": "orderId", "type": "string"},
-       {"name": "customerId", "type": "string"},
-       {"name": "totalAmount", "type": "double"},
-       {"name": "currency", "type": "string", "default": "USD"}
+   ""type"": ""record"",
+   ""name"": ""Order"",
+   ""namespace"": ""com.example.ecommerce"",
+   ""fields"": [
+       {""name"": ""orderId"", ""type"": ""string""},
+       {""name"": ""customerId"", ""type"": ""string""},
+       {""name"": ""totalAmount"", ""type"": ""double""},
+       {""name"": ""currency"", ""type"": ""string"", ""default"": ""USD""}
    ]
-}
-"""
+}";
 
-value_schema = avro.loads(value_schema_str)
+var schemaRegistryConfig = new SchemaRegistryConfig
+{
+    Url = "http://localhost:8081"
+};
 
-producer = AvroProducer({
-    'bootstrap.servers': 'localhost:9092',
-    'schema.registry.url': 'http://localhost:8081'
-}, default_value_schema=value_schema)
+var producerConfig = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092"
+};
 
-# Schema automatically registered and versioned
-producer.produce(topic='orders', value={
-    'orderId': 'ORD-123',
-    'customerId': 'CUST-456',
-    'totalAmount': 99.99,
-    'currency': 'USD'
-})
+using var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
+using var producer = new ProducerBuilder<string, Order>(producerConfig)
+    .SetValueSerializer(new AvroSerializer<Order>(schemaRegistry))
+    .Build();
+
+// Schema automatically registered and versioned
+var order = new Order
+{
+    OrderId = "ORD-123",
+    CustomerId = "CUST-456",
+    TotalAmount = 99.99,
+    Currency = "USD"
+};
+
+await producer.ProduceAsync("orders", new Message<string, Order>
+{
+    Key = order.OrderId,
+    Value = order
+});
 ```
 
 ## Common Event Design Mistakes
 
 ### Mistake 1: Treating Events as Commands
-
-```python
-# ❌ Bad: Command disguised as event
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// ❌ Bad: Command disguised as event
+var badEvent = new
 {
-    "eventType": "SendConfirmationEmail",  # Imperative
-    "orderId": "ORD-123"
-}
+    eventType = "SendConfirmationEmail", // Imperative
+    orderId = "ORD-123"
+};
 
-# ✅ Good: Event describing what happened
+// ✅ Good: Event describing what happened
+var goodEvent = new
 {
-    "eventType": "OrderPlaced",  # Past tense
-    "orderId": "ORD-123",
-    "customerEmail": "customer@example.com"
-}
-# Let consumers decide to send email
+    eventType = "OrderPlaced", // Past tense
+    orderId = "ORD-123",
+    customerEmail = "customer@example.com"
+};
+// Let consumers decide to send email
 ```
 
 ### Mistake 2: Including Too Much Data
-
-```python
-# ❌ Bad: Dumping entire database
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// ❌ Bad: Dumping entire database
+var badEvent = new
 {
-    "eventType": "OrderPlaced",
-    "data": {
-        "order": {...},  # Entire order object
-        "customer": {...},  # Entire customer object with all history
-        "products": [...],  # All product details, reviews, inventory
-        "allRelatedOrders": [...],  # Why include this?
-        "companyMetadata": {...}  # Unnecessary
+    eventType = "OrderPlaced",
+    data = new
+    {
+        order = new { /* Entire order object */ },
+        customer = new { /* Entire customer object with all history */ },
+        products = new[] { /* All product details, reviews, inventory */ },
+        allRelatedOrders = new[] { /* Why include this? */ },
+        companyMetadata = new { /* Unnecessary */ }
     }
-}
-# Event is 500 KB!
+};
+// Event is 500 KB!
 
-# ✅ Good: Just what consumers need
+// ✅ Good: Just what consumers need
+var goodEvent = new
 {
-    "eventType": "OrderPlaced",
-    "data": {
-        "orderId": "ORD-123",
-        "customerId": "CUST-456",
-        "customerEmail": "customer@example.com",
-        "items": [...],  # Only items in THIS order
-        "totalAmount": 99.99,
-        "shippingAddress": {...}
+    eventType = "OrderPlaced",
+    data = new
+    {
+        orderId = "ORD-123",
+        customerId = "CUST-456",
+        customerEmail = "customer@example.com",
+        items = new[] { /* Only items in THIS order */ },
+        totalAmount = 99.99,
+        shippingAddress = new { /* ... */ }
     }
-}
-# Event is 5 KB
+};
+// Event is 5 KB
 ```
 
 ### Mistake 3: Including Too Little Data
-
-```python
-# ❌ Bad: Forces consumers to make API calls
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// ❌ Bad: Forces consumers to make API calls
+var badEvent = new
 {
-    "eventType": "OrderPlaced",
-    "orderId": "ORD-123"
-}
-# Every consumer must call: GET /orders/ORD-123
+    eventType = "OrderPlaced",
+    orderId = "ORD-123"
+};
+// Every consumer must call: GET /orders/ORD-123
 
-# ✅ Good: Self-contained for common use cases
+// ✅ Good: Self-contained for common use cases
+var goodEvent = new
 {
-    "eventType": "OrderPlaced",
-    "data": {
-        "orderId": "ORD-123",
-        "customerId": "CUST-456",
-        "customerEmail": "customer@example.com",
-        "totalAmount": 99.99,
-        "items": [...]
+    eventType = "OrderPlaced",
+    data = new
+    {
+        orderId = "ORD-123",
+        customerId = "CUST-456",
+        customerEmail = "customer@example.com",
+        totalAmount = 99.99,
+        items = new[] { /* ... */ }
     }
-}
-# 80% of consumers have what they need
+};
+// 80% of consumers have what they need
 ```
 
 ### Mistake 4: No Versioning
-
-```python
-# ❌ Bad: No version info
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// ❌ Bad: No version info
+var badEvent = new
 {
-    "eventType": "OrderPlaced",
-    "data": {...}
-}
-# How do consumers know what schema to expect?
+    eventType = "OrderPlaced",
+    data = new { /* ... */ }
+};
+// How do consumers know what schema to expect?
 
-# ✅ Good: Always version
+// ✅ Good: Always version
+var goodEvent = new
 {
-    "eventType": "OrderPlaced",
-    "eventVersion": "1.2",
-    "data": {...}
-}
-# Consumers can handle different versions gracefully
+    eventType = "OrderPlaced",
+    eventVersion = "1.2",
+    data = new { /* ... */ }
+};
+// Consumers can handle different versions gracefully
 ```
 
 ### Mistake 5: Mutable Events
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+// ❌ Bad: Updating events
+_eventStore.UpdateEvent(eventId, new { status = "corrected" });
+// Events are history - you can't change the past!
 
-```python
-# ❌ Bad: Updating events
-event_store.update_event(event_id, {'status': 'corrected'})
-# Events are history - you can't change the past!
-
-# ✅ Good: Compensating events
-# Original event stays, new event corrects it
+// ✅ Good: Compensating events
+// Original event stays, new event corrects it
+var correctionEvent = new
 {
-    "eventType": "OrderCorrected",
-    "originalEventId": "evt_123",
-    "corrections": {
-        "totalAmount": 89.99  # Was 99.99, corrected to 89.99
+    eventType = "OrderCorrected",
+    originalEventId = "evt_123",
+    corrections = new
+    {
+        totalAmount = 89.99 // Was 99.99, corrected to 89.99
     }
-}
+};
 ```
 
 ## Practical Event Design Workshop
@@ -1189,9 +1448,9 @@ stateDiagram-v2
 ```
 
 ### Event Design:
-
-```python
-# Event 1: RideRequested
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```json
+// Event 1: RideRequested
 {
     "eventId": "evt_abc123",
     "eventType": "RideRequested",
@@ -1222,7 +1481,7 @@ stateDiagram-v2
     }
 }
 
-# Event 2: DriverAssigned
+// Event 2: DriverAssigned
 {
     "eventId": "evt_def456",
     "eventType": "DriverAssigned",
@@ -1251,7 +1510,7 @@ stateDiagram-v2
     }
 }
 
-# Event 3: RideStarted
+// Event 3: RideStarted
 {
     "eventId": "evt_ghi789",
     "eventType": "RideStarted",
@@ -1270,7 +1529,7 @@ stateDiagram-v2
     }
 }
 
-# Event 4: RideCompleted
+// Event 4: RideCompleted
 {
     "eventId": "evt_jkl012",
     "eventType": "RideCompleted",
@@ -1299,49 +1558,100 @@ stateDiagram-v2
 ```
 
 ### Services Consuming These Events:
+> 💡 **Pseudo code** - Simplified for illustration purposes
+```csharp
+using System.Collections.Generic;
 
-```python
-# Notification Service - Sends updates to passenger
-class NotificationService:
-    def handle_driver_assigned(self, event):
-        send_push_notification(
-            passenger_id=event['data']['passengerId'],
-            message=f"Your driver {event['data']['driverName']} is arriving in 5 minutes",
-            metadata={
-                'driver_name': event['data']['driverName'],
-                'vehicle': f"{event['data']['vehicleInfo']['color']} {event['data']['vehicleInfo']['make']}"
+// Notification Service - Sends updates to passenger
+public class NotificationService
+{
+    public void HandleDriverAssigned(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        var vehicleInfo = (Dictionary<string, object>)data["vehicleInfo"];
+        
+        SendPushNotification(
+            passengerId: data["passengerId"].ToString(),
+            message: $"Your driver {data["driverName"]} is arriving in 5 minutes",
+            metadata: new Dictionary<string, object>
+            {
+                ["driver_name"] = data["driverName"],
+                ["vehicle"] = $"{vehicleInfo["color"]} {vehicleInfo["make"]}"
             }
-        )
+        );
+    }
+    
+    private void SendPushNotification(string passengerId, string message, Dictionary<string, object> metadata)
+    {
+        // Push notification logic
+    }
+}
 
-# Analytics Service - Tracks metrics
-class AnalyticsService:
-    def handle_ride_completed(self, event):
-        self.record_metrics({
-            'event': 'ride_completed',
-            'distance': event['data']['actualDistance'],
-            'duration': event['data']['actualDuration'],
-            'fare': event['data']['fareAmount'],
-            'ride_type': 'STANDARD'
-        })
+// Analytics Service - Tracks metrics
+public class AnalyticsService
+{
+    public void HandleRideCompleted(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        
+        RecordMetrics(new
+        {
+            @event = "ride_completed",
+            distance = (double)data["actualDistance"],
+            duration = (int)data["actualDuration"],
+            fare = (decimal)data["fareAmount"],
+            ride_type = "STANDARD"
+        });
+    }
+    
+    private void RecordMetrics(object metrics)
+    {
+        // Metrics recording logic
+    }
+}
 
-# Payment Service - Processes payment
-class PaymentService:
-    def handle_ride_completed(self, event):
-        self.charge_passenger(
-            ride_id=event['data']['rideId'],
-            amount=event['data']['fareAmount'],
-            breakdown=event['data']['fareBreakdown']
-        )
+// Payment Service - Processes payment
+public class PaymentService
+{
+    public void HandleRideCompleted(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        var fareBreakdown = (Dictionary<string, object>)data["fareBreakdown"];
+        
+        ChargePassenger(
+            rideId: data["rideId"].ToString(),
+            amount: (decimal)data["fareAmount"],
+            breakdown: fareBreakdown
+        );
+    }
+    
+    private void ChargePassenger(string rideId, decimal amount, Dictionary<string, object> breakdown)
+    {
+        // Payment processing logic
+    }
+}
 
-# Driver Commission Service - Calculates driver earnings
-class DriverCommissionService:
-    def handle_ride_completed(self, event):
-        driver_earning = event['data']['fareAmount'] * 0.75  # 75% to driver
-        self.credit_driver(
-            driver_id=event['data']['driverId'],
-            amount=driver_earning,
-            ride_id=event['data']['rideId']
-        )
+// Driver Commission Service - Calculates driver earnings
+public class DriverCommissionService
+{
+    public void HandleRideCompleted(Dictionary<string, object> eventObj)
+    {
+        var data = (Dictionary<string, object>)eventObj["data"];
+        var fareAmount = (decimal)data["fareAmount"];
+        var driverEarning = fareAmount * 0.75m; // 75% to driver
+        
+        CreditDriver(
+            driverId: data["driverId"].ToString(),
+            amount: driverEarning,
+            rideId: data["rideId"].ToString()
+        );
+    }
+    
+    private void CreditDriver(string driverId, decimal amount, string rideId)
+    {
+        // Driver commission logic
+    }
+}
 ```
 
 ## Next Steps
