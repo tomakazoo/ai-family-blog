@@ -1656,7 +1656,7 @@ public class DriverCommissionService
 
 ## Next Steps
 
-In Part 3, we'll dive into Apache Kafka:
+In [Part 3](part-03-introduction-to-kafka), we'll dive into Apache Kafka:
 - What makes Kafka special for event streaming
 - Core concepts: topics, partitions, offsets, consumer groups
 - Kafka's architecture and guarantees

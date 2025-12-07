@@ -1405,7 +1405,7 @@ connect-mirror-maker.sh mm2.properties
 
 ## Next Steps
 
-In Part 6, we'll explore advanced event-driven patterns:
+In [Part 6](part-06-advanced-patterns), we'll explore advanced event-driven patterns:
 - CQRS (Command Query Responsibility Segregation)
 - Event Sourcing implementations
 - Saga Pattern for distributed transactions

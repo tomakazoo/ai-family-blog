@@ -1068,4 +1068,4 @@ You now understand what Kafka is and why it's powerful. Time to write some code!
 6. High performance through sequential I/O, zero-copy, and batching
 7. Perfect for high-throughput event streaming
 
-Next: Let's build something with Kafka!
+Next: Let's build something with Kafka [part-04](part-04-hands-on-kafka)!

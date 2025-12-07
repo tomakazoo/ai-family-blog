@@ -916,19 +916,19 @@ Watch as:
 - Orders are created rapidly
 - Events flow through Kafka
 - All consumers process in parallel
-- Analytics dashboard updates in real-time
+- Services coordinate events through Kafka topics
 
 ## Key Takeaways
 
-✅ **Set up a 3-broker Kafka cluster with Docker**  
-✅ **Created topics with partitions and replication**  
+✅ **Set up Kafka with Docker Compose (single broker with Schema Registry)**  
+✅ **Created topics with partitions (replication-factor 1 for development)**  
 ✅ **Built a producer (Order Service) publishing `orders-created` events**  
 ✅ **Built consumer-producer services (Customer, Inventory) that consume from one topic and produce to another**  
 ✅ **Built a shipping service that consumes from multiple topics and coordinates event dependencies**  
 ✅ **Understood consumer groups and partitioning for parallel processing**  
 ✅ **Learned how to handle rejection flows and error scenarios**  
 ✅ **Tested failure scenarios and recovery**  
-✅ **Monitored consumer lag and system health**  
+✅ **Monitored consumer lag and system health with Kafka UI**  
 ✅ **Understood event-driven workflows with multiple dependencies**
 
 ## What This Example Demonstrates
@@ -946,7 +946,7 @@ The complete C# implementation is available in the [GitHub repository](https://g
 
 ## Next Steps
 
-In Part 5, we'll dive into advanced Kafka concepts:
+In [Part 5](part-05-advanced-kafka-concepts), we'll dive into advanced Kafka concepts:
 - Exactly-once semantics
 - Log compaction for state management
 - Kafka Streams for real-time processing
