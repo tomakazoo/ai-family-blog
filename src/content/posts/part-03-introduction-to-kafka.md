@@ -8,6 +8,24 @@ coverImage: "/images/blog/kafka.jpg"
 
 # Part 3: Introduction to Apache Kafka - The Event Streaming Platform
 
+## From Data Chaos to a Central Nervous System for Your Enterprise
+
+> "A modern company isn't just one piece of software with one database. The problem we face is how to connect all this up... This problem isn't about managing data at rest—it is about managing data in motion."
+> 
+> — Jay Kreps, Cofounder and CEO at Confluent
+
+---
+
+![Point-to-Point Integration Chaos](/images/eda/presentation-slide-2.png)
+*The spaghetti diagram: Multiple apps (Metrics App, Activity Logger, Frontend Service) all connected to multiple destinations (Dashboard, Long-Term Analysis, Alerting System) via a tangled web of point-to-point connections.*
+
+
+![Kafka as Central Hub](/images/eda/presentation-slide-3.png)
+*Clean architecture: All producers (Metrics App, Activity Logger, Frontend Service) send data to a central Kafka cluster, and all consumers (Dashboard, Long-Term Analysis, Alerting System) read from it independently.*
+
+> **📸 Image Source Note:** All images in this post are taken from some of my earlier presentations on Kafka and Event-Driven Architecture. They’ll be updated over time, as Kafka continues to evolve and new features are introduced, to ensure everything stays accurate with the current ecosystem.
+
+
 ## The Event Streaming Challenge
 
 You've designed beautiful events in Part 2. Your services are ready to produce and consume them. Now you need infrastructure that can handle:
@@ -104,15 +122,52 @@ graph LR
     style B2 fill:#00b894
 ```
 
-| Feature | Traditional Queue | Kafka |
-|---------|------------------|-------|
-| **Message Retention** | Deleted after consumption | Retained (configurable: hours to forever) |
-| **Consumers** | One per message (competing consumers) | Multiple consumer groups, each gets all messages |
-| **Ordering** | Limited | Strong ordering within partition |
-| **Throughput** | Moderate (thousands/sec) | Extreme (millions/sec) |
-| **Use Case** | Task distribution, work queues | Event streaming, data pipelines, event sourcing |
-| **Replay** | ❌ No | ✅ Yes |
-| **Storage** | Temporary | Can be permanent |
+<table style="width: 100%; border-collapse: separate; border-spacing: 0; margin: 24px 0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06); background: #ffffff;">
+<thead>
+<tr style="background-color:rgb(38, 38, 39);">
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #ffffff; border: none; background-color: #6b7280; border-right: 1px solid rgba(255, 255, 255, 0.2); border-bottom: 2px solid rgba(255, 255, 255, 0.3);">Feature</th>
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #ffffff; border: none; background-color: #6b7280; border-right: 1px solid rgba(255, 255, 255, 0.2); border-bottom: 2px solid rgba(255, 255, 255, 0.3);">Traditional Queue</th>
+<th style="padding: 16px 20px; text-align: left; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: #ffffff; border: none; background-color: #6b7280; border-bottom: 2px solid rgba(255, 255, 255, 0.3);">Kafka</th>
+</tr>
+</thead>
+<tbody>
+<tr style="background-color: #1a1a2e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Message Retention</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Deleted after consumption</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #4facfe;">Retained (configurable: hours to forever)</td>
+</tr>
+<tr style="background-color: #16213e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Consumers</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">One per message (competing consumers)</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #4facfe;">Multiple consumer groups, each gets all messages</td>
+</tr>
+<tr style="background-color: #1a1a2e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Ordering</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Limited</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #4facfe;">Strong ordering within partition</td>
+</tr>
+<tr style="background-color: #16213e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Throughput</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Moderate (thousands/sec)</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #4facfe;">Extreme (millions/sec)</td>
+</tr>
+<tr style="background-color: #1a1a2e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Use Case</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Task distribution, work queues</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #4facfe;">Event streaming, data pipelines, event sourcing</td>
+</tr>
+<tr style="background-color: #16213e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Replay</strong></td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">❌ No</td>
+<td style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #4facfe;">✅ Yes</td>
+</tr>
+<tr style="background-color: #1a1a2e; transition: background-color 0.2s ease;">
+<td style="padding: 16px 20px; border-right: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff;"><strong style="color: #f093fb;">Storage</strong></td>
+<td style="padding: 16px 20px; border-right: 1px solid rgba(255, 255, 255, 0.1); color: #e0e0e0;">Temporary</td>
+<td style="padding: 16px 20px; color: #4facfe;">Can be permanent</td>
+</tr>
+</tbody>
+</table>
 
 **Think of it this way:**
 
@@ -120,6 +175,10 @@ graph LR
 - **Kafka**: Shared append-only log book that everyone can read
 
 ## Core Kafka Concepts
+
+
+![Distributed Commit Log](/images/eda/presentation-slide-4.png)
+*Visual showing a Topic "User-Activity" split into 4 partitions (Partition 0, 1, 2, 3), each with sequential message offsets and append-only writes.*
 
 ### 1. Topics
 
@@ -287,6 +346,9 @@ graph TB
 
 ### 5. Replication
 
+![Kafka Architecture](/images/eda/presentation-slide-6.png)
+*Three brokers shown: Broker 1 (Leader), Broker 2 (Follower), Broker 3 (Follower), with Partition 0 replicated across all three brokers.*
+
 Partitions are replicated across brokers for **fault tolerance**.
 
 ```mermaid
@@ -408,6 +470,10 @@ future = producer.send(
 record_metadata = future.get(timeout=10)
 print(f"Message sent to partition {record_metadata.partition} at offset {record_metadata.offset}")
 ```
+
+Kafka's architecture defines clear roles for how data flows through the system.
+![Producers, Consumers, Consumer Groups](/images/eda/presentation-slide-5.png)
+*Diagram showing a Topic with 4 partitions, and Consumer Group G1 with three consumers (C1, C2, C3) each reading from different partitions in parallel.*
 
 ### 7. Consumers and Consumer Groups
 
@@ -533,6 +599,9 @@ graph TB
     style C3E fill:#ff7675
 ```
 
+![Disk-Based Retention](/images/eda/presentation-slide-7.png)
+*Flow diagram: Producer → Kafka Broker (disk storage) → Consumer A (online) and Consumer B (offline for maintenance). Later, Consumer B comes back online and can resume from where it left off.*
+
 ## How Kafka Achieves High Performance
 
 ### 1. Sequential I/O
@@ -649,6 +718,9 @@ Kafka relies heavily on the OS **page cache**. Recent messages are in RAM, makin
 
 ## Kafka's Guarantees
 
+![Reliability Configuration](/images/eda/presentation-slide-8.png)
+*Three configuration panels showing: replication.factor (data copied N times), min.insync.replicas (minimum replicas that must acknowledge writes), and acks=all (producer waits for all in-sync replicas).*
+
 ### Message Delivery Semantics
 
 ```mermaid
@@ -705,6 +777,9 @@ producer = KafkaProducer(
 # Messages delivered exactly once (most expensive)
 ```
 
+![Exactly-Once Semantics](/images/eda/presentation-slide-9.png)
+*Two solutions shown: 1) Idempotent Producer with Producer ID and Sequence Number preventing duplicates, and 2) Transactions enabling atomic consume-process-produce operations.*
+
 ### Ordering Guarantees
 
 ```mermaid
@@ -739,6 +814,12 @@ producer.send(
 ```
 
 ## When to Use Kafka
+
+
+Kafka has evolved from solving LinkedIn's data pipeline problem into a foundational technology for any organization that treats data as a continuously evolving and ever-growing stream.
+
+![Use Cases](/images/eda/presentation-slide-12.png)
+*Six use case boxes showing: Activity Tracking, Real-Time Messaging, Metrics & Logging Aggregation, Database Change Data Capture (CDC), Stream Processing, and "And many more..."*
 
 ### ✅ Perfect for Kafka:
 
@@ -814,19 +895,29 @@ graph TB
 ```
 
 ### Kafka Streams
-```java
+
+
+![Kafka Streams](/images/eda/presentation-slide-11.png)
+*Kafka Streams App shown with Input Topic → processing logic (join, aggregation, filtering) → Output Topic.*
+
+```csharp
 // Stream processing directly on Kafka
-StreamsBuilder builder = new StreamsBuilder();
-KStream<String, Order> orders = builder.stream("orders");
+var builder = new StreamsBuilder();
+var orders = builder.Stream<string, Order>("orders");
 
 // Transform stream
 orders
-    .filter((key, order) -> order.getAmount() > 1000)
-    .mapValues(order -> enrichOrder(order))
-    .to("high-value-orders");
+    .Filter((key, order) => order.Amount > 1000)
+    .MapValues(order => EnrichOrder(order))
+    .To("high-value-orders");
+
 ```
 
 ### Kafka Connect
+
+![Kafka Connect Ecosystem](/images/eda/presentation-slide-10.png)
+*Diagram showing multiple data sources (MySQL, Amazon S3, Elasticsearch, HDFS) connecting to Kafka Connect, which streams data to/from a Kafka Cluster, with connections to corresponding sinks on the other side.*
+
 ```json
 {
   "name": "postgres-source",
@@ -964,6 +1055,9 @@ In Part 4, we'll get hands-on:
 - Understanding consumer groups in action
 
 You now understand what Kafka is and why it's powerful. Time to write some code! 🚀
+
+![Foundation for Real-Time Enterprise](/images/eda/presentation-slide-13.png)
+*Quotes from Zymergen and Robinhood engineers praising Kafka's comprehensive coverage and critical role in scaling their systems. Bottom shows three icons representing Kafka's unification of: messaging system, storage system, and stream processing platform, forming the central nervous system of a modern digital company.*
 
 **Key Takeaways:**
 1. Kafka is a distributed, fault-tolerant event log
