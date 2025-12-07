@@ -716,7 +716,7 @@ cd kafka-event-driven-architecture
 This starts Zookeeper, Kafka Broker (port 9092), Schema Registry, and Kafka UI (http://localhost:8080).
 
 ### Create a Producer
-
+> 💡 **Simplified code** - [github - full BasicProducer](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/examples/01-fundamentals/dotnet/BasicProducer.cs)
 ```csharp
 using Confluent.Kafka;
 using System.Text.Json;
@@ -749,7 +749,7 @@ dotnet run --project BasicProducer.csproj
 ```
 
 ### Create a Consumer
-
+ 💡 **Simplified code** - [github - full BasicConsumer](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/examples/01-fundamentals/dotnet/BasicConsumer.cs)
 ```csharp
 using Confluent.Kafka;
 
