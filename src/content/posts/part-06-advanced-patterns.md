@@ -609,6 +609,38 @@ graph LR
     style E4 fill:#00b894
 ```
 
+### A Paradigm Shift: Events Before Models
+
+Event Sourcing is not mainly about objects, aggregates, or persistence tricks. It is about treating software as a system that remembers its experiences as a stream of events, and only then builds whatever models it needs on top.
+
+**Events before models**
+
+Most explanations frame Event Sourcing as "storing every change to state," usually tied to a domain model and a persistence pattern. In this view, events are diffs on objects, and the main benefit is a perfect audit log or the ability to rebuild state. That is useful, but it is not the most interesting part.
+
+A broader view is: events are descriptions of things that happened, independent of any particular object model. They are traces of what the system perceived and did. The system can later construct many different models from those experiences, instead of betting everything on a single "correct" domain model decided up front.
+
+**The single-model trap**
+
+Traditional software design tries to squeeze reality into one coherent, durable data model that should work now and stay flexible for an unknown future. This "single model fallacy" feels efficient at first but tends to calcify; changing the model becomes harder with every feature and migration.
+
+This mirrors a more "platonic" mindset: assuming there is one true model of the world to discover and encode. Constructivist thinking instead says that each observer builds its own models from experience, and those models are always partial and revisable. Event Sourcing fits this: first collect experiences (events), then build and rebuild models as needed.
+
+**ES as a first worldview**
+
+Imagine if developers learned from day one that a system is an organism reacting to stimuli, recording its experiences as events, and deriving temporary, replaceable models from that history. CRUD databases, aggregates, projections, microservices, and specialized data models would then be optimizations on top of the event stream, not the foundation.
+
+In that worldview, pluralism is normal: one event stream, many read models, many ways of looking at the same history. Software becomes more about evolving behavior in a changing environment, less about defending a single schema.
+
+**What "ES-first" really means**
+
+"ES-first" does not mean throwing away OOP, FP, SQL, NoSQL, or monoliths. It means:
+
+- Events are the primary source of truth; models are secondary, derived, and disposable.
+- The system expects to build new models from the same events as requirements, insights, and environments change.
+- Your main job is to create valuable behavior, not to freeze the world into one perfect schema.
+
+That is why Event Sourcing feels less like a persistence pattern and more like a paradigm shift: from monolithic models to constructivist, experience-first software.
+
 ### Complete Event Sourcing Implementation
 
 ```csharp
