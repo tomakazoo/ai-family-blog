@@ -119,296 +119,457 @@ graph TB
 
 **Write Model (Commands):**
 
-```python
-from dataclasses import dataclass
-from typing import List
-from datetime import datetime
-import uuid
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
-# Commands (intent to change state)
-@dataclass
-class PlaceOrderCommand:
-    customer_id: str
-    items: List[dict]
-    shipping_address: dict
+// Commands (intent to change state)
+public record PlaceOrderCommand(
+    string CustomerId,
+    List<OrderItem> Items,
+    ShippingAddress ShippingAddress
+);
 
-@dataclass
-class CancelOrderCommand:
-    order_id: str
-    reason: str
+public record CancelOrderCommand(
+    string OrderId,
+    string Reason
+);
 
-# Events (state changes that happened)
-@dataclass
-class OrderPlacedEvent:
-    event_id: str
-    order_id: str
-    customer_id: str
-    items: List[dict]
-    total_amount: float
-    timestamp: datetime
+// Events (state changes that happened)
+public record OrderPlacedEvent(
+    string EventId,
+    string OrderId,
+    string CustomerId,
+    List<OrderItem> Items,
+    decimal TotalAmount,
+    DateTime Timestamp
+);
 
-@dataclass
-class OrderCancelledEvent:
-    event_id: str
-    order_id: str
-    reason: str
-    timestamp: datetime
+public record OrderCancelledEvent(
+    string EventId,
+    string OrderId,
+    string Reason,
+    DateTime Timestamp
+);
 
-# Write Model (Command Handler)
-class OrderCommandHandler:
-    def __init__(self, repository, event_bus):
-        self.repository = repository
-        self.event_bus = event_bus
-    
-    def handle_place_order(self, command: PlaceOrderCommand):
-        # 1. Validate command
-        self._validate_place_order(command)
-        
-        # 2. Create aggregate
-        order = Order.create(
-            customer_id=command.customer_id,
-            items=command.items,
-            shipping_address=command.shipping_address
-        )
-        
-        # 3. Save to write database
-        self.repository.save(order)
-        
-        # 4. Publish events
-        for event in order.uncommitted_events:
-            self.event_bus.publish('orders', event)
-        
-        return order.order_id
-    
-    def handle_cancel_order(self, command: CancelOrderCommand):
-        # 1. Load order
-        order = self.repository.get(command.order_id)
-        
-        if not order:
-            raise OrderNotFoundError(command.order_id)
-        
-        # 2. Execute business logic
-        order.cancel(command.reason)
-        
-        # 3. Save changes
-        self.repository.save(order)
-        
-        # 4. Publish events
-        for event in order.uncommitted_events:
-            self.event_bus.publish('orders', event)
+// Write Model (Command Handler)
+public class OrderCommandHandler
+{
+    private readonly IOrderRepository _repository;
+    private readonly IEventBus _eventBus;
 
-# Domain Model
-class Order:
-    def __init__(self):
-        self.order_id = None
-        self.customer_id = None
-        self.items = []
-        self.status = None
-        self.total_amount = 0.0
-        self.uncommitted_events = []
-    
-    @staticmethod
-    def create(customer_id, items, shipping_address):
-        order = Order()
-        order.order_id = f"ORD-{uuid.uuid4().hex[:8]}"
-        order.customer_id = customer_id
-        order.items = items
-        order.status = "PLACED"
-        order.total_amount = sum(item['price'] * item['quantity'] for item in items)
+    public OrderCommandHandler(IOrderRepository repository, IEventBus eventBus)
+    {
+        _repository = repository;
+        _eventBus = eventBus;
+    }
+
+    public string HandlePlaceOrder(PlaceOrderCommand command)
+    {
+        // 1. Validate command
+        ValidatePlaceOrder(command);
         
-        # Record event
-        event = OrderPlacedEvent(
-            event_id=str(uuid.uuid4()),
-            order_id=order.order_id,
-            customer_id=customer_id,
-            items=items,
-            total_amount=order.total_amount,
-            timestamp=datetime.utcnow()
-        )
-        order.uncommitted_events.append(event)
+        // 2. Create aggregate
+        var order = Order.Create(
+            command.CustomerId,
+            command.Items,
+            command.ShippingAddress
+        );
         
-        return order
-    
-    def cancel(self, reason):
-        if self.status in ['SHIPPED', 'DELIVERED']:
-            raise CannotCancelOrderError("Order already shipped")
+        // 3. Save to write database
+        _repository.Save(order);
         
-        self.status = "CANCELLED"
+        // 4. Publish events
+        foreach (var evt in order.UncommittedEvents)
+        {
+            _eventBus.Publish("orders", evt);
+        }
         
-        # Record event
-        event = OrderCancelledEvent(
-            event_id=str(uuid.uuid4()),
-            order_id=self.order_id,
-            reason=reason,
-            timestamp=datetime.utcnow()
-        )
-        self.uncommitted_events.append(event)
+        return order.OrderId;
+    }
+
+    public void HandleCancelOrder(CancelOrderCommand command)
+    {
+        // 1. Load order
+        var order = _repository.Get(command.OrderId);
+        
+        if (order == null)
+            throw new OrderNotFoundException(command.OrderId);
+        
+        // 2. Execute business logic
+        order.Cancel(command.Reason);
+        
+        // 3. Save changes
+        _repository.Save(order);
+        
+        // 4. Publish events
+        foreach (var evt in order.UncommittedEvents)
+        {
+            _eventBus.Publish("orders", evt);
+        }
+    }
+
+    private void ValidatePlaceOrder(PlaceOrderCommand command)
+    {
+        // Validation logic
+    }
+}
+
+// Domain Model
+public class Order
+{
+    public string OrderId { get; private set; }
+    public string CustomerId { get; private set; }
+    public List<OrderItem> Items { get; private set; }
+    public string Status { get; private set; }
+    public decimal TotalAmount { get; private set; }
+    public List<object> UncommittedEvents { get; private set; }
+
+    private Order()
+    {
+        UncommittedEvents = new List<object>();
+    }
+
+    public static Order Create(string customerId, List<OrderItem> items, ShippingAddress shippingAddress)
+    {
+        var order = new Order();
+        order.OrderId = $"ORD-{Guid.NewGuid():N}";
+        order.CustomerId = customerId;
+        order.Items = items;
+        order.Status = "PLACED";
+        order.TotalAmount = items.Sum(item => item.Price * item.Quantity);
+        
+        // Record event
+        var evt = new OrderPlacedEvent(
+            EventId: Guid.NewGuid().ToString(),
+            OrderId: order.OrderId,
+            CustomerId: customerId,
+            Items: items,
+            TotalAmount: order.TotalAmount,
+            Timestamp: DateTime.UtcNow
+        );
+        order.UncommittedEvents.Add(evt);
+        
+        return order;
+    }
+
+    public void Cancel(string reason)
+    {
+        if (Status == "SHIPPED" || Status == "DELIVERED")
+            throw new CannotCancelOrderException("Order already shipped");
+        
+        Status = "CANCELLED";
+        
+        // Record event
+        var evt = new OrderCancelledEvent(
+            EventId: Guid.NewGuid().ToString(),
+            OrderId: OrderId,
+            Reason: reason,
+            Timestamp: DateTime.UtcNow
+        );
+        UncommittedEvents.Add(evt);
+    }
+}
+
+// Supporting types
+public record OrderItem(string ProductId, int Quantity, decimal Price);
+public record ShippingAddress(string Street, string City, string State, string ZipCode);
 ```
 
 **Read Model (Queries):**
 
-```python
-from kafka import KafkaConsumer
-import json
-from pymongo import MongoClient
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Confluent.Kafka;
+using MongoDB.Driver;
+using System.Text.Json;
 
-# Read Model 1: Order List View
-class OrderListProjection:
-    def __init__(self):
-        self.consumer = KafkaConsumer(
-            'orders',
-            group_id='order-list-projection',
-            value_deserializer=lambda m: json.loads(m.decode('utf-8'))
-        )
-        self.db = MongoClient()['ecommerce']['order_list']
-    
-    def project(self):
-        for message in self.consumer:
-            event = message.value
+// Read Model 1: Order List View
+public class OrderListProjection
+{
+    private readonly IConsumer<string, string> _consumer;
+    private readonly IMongoCollection<OrderListView> _collection;
+
+    public OrderListProjection(IConsumer<string, string> consumer, IMongoDatabase database)
+    {
+        _consumer = consumer;
+        _consumer.Subscribe("orders");
+        _collection = database.GetCollection<OrderListView>("order_list");
+    }
+
+    public async Task ProjectAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var result = _consumer.Consume(cancellationToken);
+            var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(result.Message.Value);
             
-            if event['event_type'] == 'OrderPlaced':
-                self.handle_order_placed(event)
-            elif event['event_type'] == 'OrderCancelled':
-                self.handle_order_cancelled(event)
-    
-    def handle_order_placed(self, event):
-        # Build denormalized list view
-        self.db.insert_one({
-            'order_id': event['order_id'],
-            'customer_id': event['customer_id'],
-            'total_amount': event['total_amount'],
-            'item_count': len(event['items']),
-            'status': 'PLACED',
-            'order_date': event['timestamp']
-        })
-    
-    def handle_order_cancelled(self, event):
-        self.db.update_one(
-            {'order_id': event['order_id']},
-            {'$set': {'status': 'CANCELLED', 'cancel_reason': event['reason']}}
-        )
-
-# Read Model 2: Order Details View
-class OrderDetailsProjection:
-    def __init__(self):
-        self.consumer = KafkaConsumer(
-            'orders',
-            group_id='order-details-projection',
-            value_deserializer=lambda m: json.loads(m.decode('utf-8'))
-        )
-        self.db = MongoClient()['ecommerce']['order_details']
-    
-    def handle_order_placed(self, event):
-        # Build detailed view with all information
-        self.db.insert_one({
-            'order_id': event['order_id'],
-            'customer_id': event['customer_id'],
-            'items': event['items'],  # Full item details
-            'total_amount': event['total_amount'],
-            'status': 'PLACED',
-            'order_date': event['timestamp'],
-            'events': [event]  # Store event history
-        })
-
-# Read Model 3: Analytics View
-class OrderAnalyticsProjection:
-    def __init__(self):
-        self.consumer = KafkaConsumer('orders', group_id='analytics-projection')
-        self.db = MongoClient()['ecommerce']['analytics']
-    
-    def handle_order_placed(self, event):
-        # Update daily metrics
-        date = event['timestamp'].split('T')[0]
-        
-        self.db.update_one(
-            {'date': date},
+            var eventType = eventData["event_type"].ToString();
+            
+            if (eventType == "OrderPlaced")
             {
-                '$inc': {
-                    'total_orders': 1,
-                    'total_revenue': event['total_amount']
-                }
-            },
-            upsert=True
-        )
+                await HandleOrderPlacedAsync(eventData);
+            }
+            else if (eventType == "OrderCancelled")
+            {
+                await HandleOrderCancelledAsync(eventData);
+            }
+        }
+    }
 
-# Query Service
-class OrderQueryService:
-    def __init__(self):
-        self.mongo = MongoClient()['ecommerce']
-    
-    def get_order_list(self, customer_id=None, limit=50):
-        """Fast list view"""
-        query = {'customer_id': customer_id} if customer_id else {}
-        return list(self.mongo['order_list'].find(query).limit(limit))
-    
-    def get_order_details(self, order_id):
-        """Detailed view"""
-        return self.mongo['order_details'].find_one({'order_id': order_id})
-    
-    def get_analytics(self, start_date, end_date):
-        """Analytics view"""
-        return list(self.mongo['analytics'].find({
-            'date': {'$gte': start_date, '$lte': end_date}
-        }))
+    private async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
+    {
+        var items = JsonSerializer.Deserialize<List<OrderItem>>(eventData["items"].ToString());
+        
+        var view = new OrderListView
+        {
+            OrderId = eventData["order_id"].ToString(),
+            CustomerId = eventData["customer_id"].ToString(),
+            TotalAmount = Convert.ToDecimal(eventData["total_amount"]),
+            ItemCount = items.Count,
+            Status = "PLACED",
+            OrderDate = DateTime.Parse(eventData["timestamp"].ToString())
+        };
+        
+        await _collection.InsertOneAsync(view);
+    }
+
+    private async Task HandleOrderCancelledAsync(Dictionary<string, object> eventData)
+    {
+        var filter = Builders<OrderListView>.Filter.Eq(o => o.OrderId, eventData["order_id"].ToString());
+        var update = Builders<OrderListView>.Update
+            .Set(o => o.Status, "CANCELLED")
+            .Set(o => o.CancelReason, eventData["reason"].ToString());
+        
+        await _collection.UpdateOneAsync(filter, update);
+    }
+}
+
+// Read Model 2: Order Details View
+public class OrderDetailsProjection
+{
+    private readonly IConsumer<string, string> _consumer;
+    private readonly IMongoCollection<OrderDetailsView> _collection;
+
+    public OrderDetailsProjection(IConsumer<string, string> consumer, IMongoDatabase database)
+    {
+        _consumer = consumer;
+        _consumer.Subscribe("orders");
+        _collection = database.GetCollection<OrderDetailsView>("order_details");
+    }
+
+    public async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
+    {
+        var items = JsonSerializer.Deserialize<List<OrderItem>>(eventData["items"].ToString());
+        
+        var view = new OrderDetailsView
+        {
+            OrderId = eventData["order_id"].ToString(),
+            CustomerId = eventData["customer_id"].ToString(),
+            Items = items,
+            TotalAmount = Convert.ToDecimal(eventData["total_amount"]),
+            Status = "PLACED",
+            OrderDate = DateTime.Parse(eventData["timestamp"].ToString()),
+            Events = new List<Dictionary<string, object>> { eventData }
+        };
+        
+        await _collection.InsertOneAsync(view);
+    }
+}
+
+// Read Model 3: Analytics View
+public class OrderAnalyticsProjection
+{
+    private readonly IConsumer<string, string> _consumer;
+    private readonly IMongoCollection<DailyAnalytics> _collection;
+
+    public OrderAnalyticsProjection(IConsumer<string, string> consumer, IMongoDatabase database)
+    {
+        _consumer = consumer;
+        _consumer.Subscribe("orders");
+        _collection = database.GetCollection<DailyAnalytics>("analytics");
+    }
+
+    public async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
+    {
+        var timestamp = DateTime.Parse(eventData["timestamp"].ToString());
+        var date = timestamp.Date;
+        
+        var filter = Builders<DailyAnalytics>.Filter.Eq(a => a.Date, date);
+        var update = Builders<DailyAnalytics>.Update
+            .Inc(a => a.TotalOrders, 1)
+            .Inc(a => a.TotalRevenue, Convert.ToDecimal(eventData["total_amount"]));
+        
+        await _collection.UpdateOneAsync(
+            filter,
+            update,
+            new UpdateOptions { IsUpsert = true }
+        );
+    }
+}
+
+// Query Service
+public class OrderQueryService
+{
+    private readonly IMongoDatabase _database;
+
+    public OrderQueryService(IMongoDatabase database)
+    {
+        _database = database;
+    }
+
+    public async Task<List<OrderListView>> GetOrderListAsync(string customerId = null, int limit = 50)
+    {
+        var collection = _database.GetCollection<OrderListView>("order_list");
+        var filter = customerId != null
+            ? Builders<OrderListView>.Filter.Eq(o => o.CustomerId, customerId)
+            : Builders<OrderListView>.Filter.Empty;
+        
+        return await collection.Find(filter)
+            .Limit(limit)
+            .ToListAsync();
+    }
+
+    public async Task<OrderDetailsView> GetOrderDetailsAsync(string orderId)
+    {
+        var collection = _database.GetCollection<OrderDetailsView>("order_details");
+        var filter = Builders<OrderDetailsView>.Filter.Eq(o => o.OrderId, orderId);
+        return await collection.Find(filter).FirstOrDefaultAsync();
+    }
+
+    public async Task<List<DailyAnalytics>> GetAnalyticsAsync(DateTime startDate, DateTime endDate)
+    {
+        var collection = _database.GetCollection<DailyAnalytics>("analytics");
+        var filter = Builders<DailyAnalytics>.Filter
+            .And(
+                Builders<DailyAnalytics>.Filter.Gte(a => a.Date, startDate),
+                Builders<DailyAnalytics>.Filter.Lte(a => a.Date, endDate)
+            );
+        
+        return await collection.Find(filter).ToListAsync();
+    }
+}
+
+// View Models
+public class OrderListView
+{
+    public string OrderId { get; set; }
+    public string CustomerId { get; set; }
+    public decimal TotalAmount { get; set; }
+    public int ItemCount { get; set; }
+    public string Status { get; set; }
+    public DateTime OrderDate { get; set; }
+    public string CancelReason { get; set; }
+}
+
+public class OrderDetailsView
+{
+    public string OrderId { get; set; }
+    public string CustomerId { get; set; }
+    public List<OrderItem> Items { get; set; }
+    public decimal TotalAmount { get; set; }
+    public string Status { get; set; }
+    public DateTime OrderDate { get; set; }
+    public List<Dictionary<string, object>> Events { get; set; }
+}
+
+public class DailyAnalytics
+{
+    public DateTime Date { get; set; }
+    public int TotalOrders { get; set; }
+    public decimal TotalRevenue { get; set; }
+}
 ```
 
 **API Layer:**
 
-```python
-from flask import Flask, request, jsonify
+```csharp
+using Microsoft.AspNetCore.Mvc;
+using System.Threading.Tasks;
 
-app = Flask(__name__)
-command_handler = OrderCommandHandler(repository, event_bus)
-query_service = OrderQueryService()
+[ApiController]
+[Route("api/[controller]")]
+public class OrdersController : ControllerBase
+{
+    private readonly OrderCommandHandler _commandHandler;
+    private readonly OrderQueryService _queryService;
 
-# Commands (writes)
-@app.route('/orders', methods=['POST'])
-def create_order():
-    data = request.json
-    
-    command = PlaceOrderCommand(
-        customer_id=data['customer_id'],
-        items=data['items'],
-        shipping_address=data['shipping_address']
-    )
-    
-    order_id = command_handler.handle_place_order(command)
-    
-    return jsonify({'order_id': order_id}), 202  # Accepted
+    public OrdersController(OrderCommandHandler commandHandler, OrderQueryService queryService)
+    {
+        _commandHandler = commandHandler;
+        _queryService = queryService;
+    }
 
-@app.route('/orders/<order_id>/cancel', methods=['POST'])
-def cancel_order(order_id):
-    data = request.json
-    
-    command = CancelOrderCommand(
-        order_id=order_id,
-        reason=data.get('reason', 'Customer requested')
-    )
-    
-    command_handler.handle_cancel_order(command)
-    
-    return jsonify({'status': 'cancelled'}), 202
+    // Commands (writes)
+    [HttpPost]
+    public async Task<ActionResult<OrderCreatedResponse>> CreateOrder([FromBody] CreateOrderRequest request)
+    {
+        var command = new PlaceOrderCommand(
+            CustomerId: request.CustomerId,
+            Items: request.Items,
+            ShippingAddress: request.ShippingAddress
+        );
+        
+        var orderId = _commandHandler.HandlePlaceOrder(command);
+        
+        return Accepted(new OrderCreatedResponse { OrderId = orderId });
+    }
 
-# Queries (reads)
-@app.route('/orders', methods=['GET'])
-def list_orders():
-    customer_id = request.args.get('customer_id')
-    orders = query_service.get_order_list(customer_id)
-    return jsonify(orders)
+    [HttpPost("{orderId}/cancel")]
+    public async Task<ActionResult> CancelOrder(string orderId, [FromBody] CancelOrderRequest request)
+    {
+        var command = new CancelOrderCommand(
+            OrderId: orderId,
+            Reason: request.Reason ?? "Customer requested"
+        );
+        
+        _commandHandler.HandleCancelOrder(command);
+        
+        return Accepted(new { status = "cancelled" });
+    }
 
-@app.route('/orders/<order_id>', methods=['GET'])
-def get_order(order_id):
-    order = query_service.get_order_details(order_id)
-    if not order:
-        return jsonify({'error': 'Order not found'}), 404
-    return jsonify(order)
+    // Queries (reads)
+    [HttpGet]
+    public async Task<ActionResult<List<OrderListView>>> ListOrders([FromQuery] string customerId = null)
+    {
+        var orders = await _queryService.GetOrderListAsync(customerId);
+        return Ok(orders);
+    }
 
-@app.route('/analytics', methods=['GET'])
-def get_analytics():
-    start = request.args.get('start_date')
-    end = request.args.get('end_date')
-    analytics = query_service.get_analytics(start, end)
-    return jsonify(analytics)
+    [HttpGet("{orderId}")]
+    public async Task<ActionResult<OrderDetailsView>> GetOrder(string orderId)
+    {
+        var order = await _queryService.GetOrderDetailsAsync(orderId);
+        if (order == null)
+            return NotFound(new { error = "Order not found" });
+        
+        return Ok(order);
+    }
+
+    [HttpGet("analytics")]
+    public async Task<ActionResult<List<DailyAnalytics>>> GetAnalytics(
+        [FromQuery] DateTime startDate,
+        [FromQuery] DateTime endDate)
+    {
+        var analytics = await _queryService.GetAnalyticsAsync(startDate, endDate);
+        return Ok(analytics);
+    }
+}
+
+// Request/Response DTOs
+public record CreateOrderRequest(
+    string CustomerId,
+    List<OrderItem> Items,
+    ShippingAddress ShippingAddress
+);
+
+public record CancelOrderRequest(string Reason);
+
+public record OrderCreatedResponse(string OrderId);
 ```
 
 ### CQRS Benefits
@@ -450,317 +611,421 @@ graph LR
 
 ### Complete Event Sourcing Implementation
 
-```python
-from typing import List, Dict, Any
-from dataclasses import dataclass, asdict
-from datetime import datetime
-import json
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
-# Base Event
-@dataclass
-class DomainEvent:
-    event_id: str
-    aggregate_id: str
-    event_type: str
-    timestamp: datetime
-    version: int
-    
-    def to_dict(self):
-        return asdict(self)
+// Base Event
+public abstract record DomainEvent(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version
+);
 
-# Order Events
-@dataclass
-class OrderCreated(DomainEvent):
-    customer_id: str
-    
-@dataclass
-class ItemAdded(DomainEvent):
-    product_id: str
-    quantity: int
-    price: float
+// Order Events
+public record OrderCreated(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version,
+    string CustomerId
+) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
 
-@dataclass
-class ItemRemoved(DomainEvent):
-    product_id: str
+public record ItemAdded(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version,
+    string ProductId,
+    int Quantity,
+    decimal Price
+) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
 
-@dataclass
-class ShippingAddressSet(DomainEvent):
-    address: Dict[str, str]
+public record ItemRemoved(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version,
+    string ProductId
+) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
 
-@dataclass
-class OrderSubmitted(DomainEvent):
-    pass
+public record ShippingAddressSet(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version,
+    Dictionary<string, string> Address
+) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
 
-@dataclass
-class PaymentReceived(DomainEvent):
-    payment_id: str
-    amount: float
+public record OrderSubmitted(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version
+) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
 
-@dataclass
-class OrderShipped(DomainEvent):
-    tracking_number: str
+public record PaymentReceived(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version,
+    string PaymentId,
+    decimal Amount
+) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
 
-# Aggregate Root
-class Order:
-    def __init__(self, order_id: str):
-        self.order_id = order_id
-        self.customer_id = None
-        self.items = []
-        self.shipping_address = None
-        self.status = None
-        self.version = 0
-        self.uncommitted_events = []
-    
-    # Commands
-    def create(self, customer_id: str):
-        if self.customer_id:
-            raise ValueError("Order already created")
-        
-        event = OrderCreated(
-            event_id=str(uuid.uuid4()),
-            aggregate_id=self.order_id,
-            event_type='OrderCreated',
-            timestamp=datetime.utcnow(),
-            version=self.version + 1,
-            customer_id=customer_id
-        )
-        
-        self._apply(event)
-        self.uncommitted_events.append(event)
-    
-    def add_item(self, product_id: str, quantity: int, price: float):
-        if self.status == 'SUBMITTED':
-            raise ValueError("Cannot modify submitted order")
-        
-        event = ItemAdded(
-            event_id=str(uuid.uuid4()),
-            aggregate_id=self.order_id,
-            event_type='ItemAdded',
-            timestamp=datetime.utcnow(),
-            version=self.version + 1,
-            product_id=product_id,
-            quantity=quantity,
-            price=price
-        )
-        
-        self._apply(event)
-        self.uncommitted_events.append(event)
-    
-    def set_shipping_address(self, address: Dict[str, str]):
-        event = ShippingAddressSet(
-            event_id=str(uuid.uuid4()),
-            aggregate_id=self.order_id,
-            event_type='ShippingAddressSet',
-            timestamp=datetime.utcnow(),
-            version=self.version + 1,
-            address=address
-        )
-        
-        self._apply(event)
-        self.uncommitted_events.append(event)
-    
-    def submit(self):
-        if not self.items:
-            raise ValueError("Cannot submit empty order")
-        if not self.shipping_address:
-            raise ValueError("Shipping address required")
-        
-        event = OrderSubmitted(
-            event_id=str(uuid.uuid4()),
-            aggregate_id=self.order_id,
-            event_type='OrderSubmitted',
-            timestamp=datetime.utcnow(),
-            version=self.version + 1
-        )
-        
-        self._apply(event)
-        self.uncommitted_events.append(event)
-    
-    # Event Handlers (apply events to rebuild state)
-    def _apply(self, event: DomainEvent):
-        if isinstance(event, OrderCreated):
-            self.customer_id = event.customer_id
-            self.status = 'CREATED'
-        
-        elif isinstance(event, ItemAdded):
-            self.items.append({
-                'product_id': event.product_id,
-                'quantity': event.quantity,
-                'price': event.price
-            })
-        
-        elif isinstance(event, ItemRemoved):
-            self.items = [i for i in self.items if i['product_id'] != event.product_id]
-        
-        elif isinstance(event, ShippingAddressSet):
-            self.shipping_address = event.address
-        
-        elif isinstance(event, OrderSubmitted):
-            self.status = 'SUBMITTED'
-        
-        elif isinstance(event, PaymentReceived):
-            self.status = 'PAID'
-        
-        elif isinstance(event, OrderShipped):
-            self.status = 'SHIPPED'
-        
-        self.version = event.version
-    
-    def load_from_history(self, events: List[DomainEvent]):
-        """Rebuild state by replaying events"""
-        for event in events:
-            self._apply(event)
+public record OrderShipped(
+    string EventId,
+    string AggregateId,
+    string EventType,
+    DateTime Timestamp,
+    int Version,
+    string TrackingNumber
+) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
 
-# Event Store
-class EventStore:
-    def __init__(self):
-        self.events = {}  # {aggregate_id: [events]}
-        self.snapshots = {}
-    
-    def save_events(self, aggregate_id: str, events: List[DomainEvent], expected_version: int):
-        """Save events with optimistic locking"""
-        if aggregate_id not in self.events:
-            self.events[aggregate_id] = []
-        
-        # Check version (optimistic locking)
-        current_version = len(self.events[aggregate_id])
-        if current_version != expected_version:
-            raise ConcurrencyError(
-                f"Expected version {expected_version}, but current is {current_version}"
-            )
-        
-        # Append events
-        self.events[aggregate_id].extend(events)
-        
-        # Publish to event bus
-        for event in events:
-            self._publish_to_kafka(event)
-        
-        return len(self.events[aggregate_id])
-    
-    def get_events(self, aggregate_id: str, from_version: int = 0) -> List[DomainEvent]:
-        """Get events for an aggregate"""
-        events = self.events.get(aggregate_id, [])
-        return events[from_version:]
-    
-    def save_snapshot(self, aggregate_id: str, snapshot: Dict[Any, Any], version: int):
-        """Save snapshot for performance"""
-        self.snapshots[aggregate_id] = {
-            'state': snapshot,
-            'version': version,
-            'timestamp': datetime.utcnow()
-        }
-    
-    def get_snapshot(self, aggregate_id: str) -> Dict[Any, Any]:
-        """Get latest snapshot"""
-        return self.snapshots.get(aggregate_id)
-    
-    def _publish_to_kafka(self, event: DomainEvent):
-        """Publish event to Kafka"""
-        producer.send('order-events', value=event.to_dict())
+// Aggregate Root
+public class Order
+{
+    public string OrderId { get; private set; }
+    public string CustomerId { get; private set; }
+    public List<OrderItem> Items { get; private set; }
+    public Dictionary<string, string> ShippingAddress { get; private set; }
+    public string Status { get; private set; }
+    public int Version { get; private set; }
+    public List<DomainEvent> UncommittedEvents { get; private set; }
 
-# Repository
-class OrderRepository:
-    def __init__(self, event_store: EventStore):
-        self.event_store = event_store
-    
-    def save(self, order: Order):
-        """Save order by storing its events"""
-        if not order.uncommitted_events:
-            return
+    private Order(string orderId)
+    {
+        OrderId = orderId;
+        Items = new List<OrderItem>();
+        UncommittedEvents = new List<DomainEvent>();
+        Version = 0;
+    }
+
+    // Commands
+    public static Order Create(string orderId, string customerId)
+    {
+        var order = new Order(orderId);
+        var evt = new OrderCreated(
+            EventId: Guid.NewGuid().ToString(),
+            AggregateId: orderId,
+            EventType: "OrderCreated",
+            Timestamp: DateTime.UtcNow,
+            Version: 1,
+            CustomerId: customerId
+        );
         
-        self.event_store.save_events(
-            order.order_id,
-            order.uncommitted_events,
-            order.version - len(order.uncommitted_events)
-        )
+        order.Apply(evt);
+        order.UncommittedEvents.Add(evt);
         
-        order.uncommitted_events = []
+        return order;
+    }
+
+    public void AddItem(string productId, int quantity, decimal price)
+    {
+        if (Status == "SUBMITTED")
+            throw new InvalidOperationException("Cannot modify submitted order");
         
-        # Save snapshot every 100 events
-        if order.version % 100 == 0:
-            self.event_store.save_snapshot(
-                order.order_id,
-                {
-                    'customer_id': order.customer_id,
-                    'items': order.items,
-                    'shipping_address': order.shipping_address,
-                    'status': order.status
-                },
-                order.version
-            )
-    
-    def get(self, order_id: str) -> Order:
-        """Load order by replaying events"""
-        order = Order(order_id)
+        var evt = new ItemAdded(
+            EventId: Guid.NewGuid().ToString(),
+            AggregateId: OrderId,
+            EventType: "ItemAdded",
+            Timestamp: DateTime.UtcNow,
+            Version: Version + 1,
+            ProductId: productId,
+            Quantity: quantity,
+            Price: price
+        );
         
-        # Try to load from snapshot
-        snapshot = self.event_store.get_snapshot(order_id)
+        Apply(evt);
+        UncommittedEvents.Add(evt);
+    }
+
+    public void SetShippingAddress(Dictionary<string, string> address)
+    {
+        var evt = new ShippingAddressSet(
+            EventId: Guid.NewGuid().ToString(),
+            AggregateId: OrderId,
+            EventType: "ShippingAddressSet",
+            Timestamp: DateTime.UtcNow,
+            Version: Version + 1,
+            Address: address
+        );
         
-        if snapshot:
-            # Load snapshot
-            order.customer_id = snapshot['state']['customer_id']
-            order.items = snapshot['state']['items']
-            order.shipping_address = snapshot['state']['shipping_address']
-            order.status = snapshot['state']['status']
-            order.version = snapshot['version']
+        Apply(evt);
+        UncommittedEvents.Add(evt);
+    }
+
+    public void Submit()
+    {
+        if (!Items.Any())
+            throw new InvalidOperationException("Cannot submit empty order");
+        if (ShippingAddress == null)
+            throw new InvalidOperationException("Shipping address required");
+        
+        var evt = new OrderSubmitted(
+            EventId: Guid.NewGuid().ToString(),
+            AggregateId: OrderId,
+            EventType: "OrderSubmitted",
+            Timestamp: DateTime.UtcNow,
+            Version: Version + 1
+        );
+        
+        Apply(evt);
+        UncommittedEvents.Add(evt);
+    }
+
+    // Event Handlers (apply events to rebuild state)
+    private void Apply(DomainEvent evt)
+    {
+        switch (evt)
+        {
+            case OrderCreated e:
+                CustomerId = e.CustomerId;
+                Status = "CREATED";
+                break;
             
-            # Load events since snapshot
-            events = self.event_store.get_events(order_id, snapshot['version'])
-        else:
-            # Load all events
-            events = self.event_store.get_events(order_id)
+            case ItemAdded e:
+                Items.Add(new OrderItem(e.ProductId, e.Quantity, e.Price));
+                break;
+            
+            case ItemRemoved e:
+                Items.RemoveAll(i => i.ProductId == e.ProductId);
+                break;
+            
+            case ShippingAddressSet e:
+                ShippingAddress = e.Address;
+                break;
+            
+            case OrderSubmitted:
+                Status = "SUBMITTED";
+                break;
+            
+            case PaymentReceived:
+                Status = "PAID";
+                break;
+            
+            case OrderShipped:
+                Status = "SHIPPED";
+                break;
+        }
         
-        # Replay events
-        order.load_from_history(events)
+        Version = evt.Version;
+    }
+
+    public void LoadFromHistory(IEnumerable<DomainEvent> events)
+    {
+        foreach (var evt in events)
+        {
+            Apply(evt);
+        }
+    }
+}
+
+// Event Store
+public class EventStore
+{
+    private readonly Dictionary<string, List<DomainEvent>> _events = new();
+    private readonly Dictionary<string, Snapshot> _snapshots = new();
+    private readonly IEventPublisher _publisher;
+
+    public EventStore(IEventPublisher publisher)
+    {
+        _publisher = publisher;
+    }
+
+    public int SaveEvents(string aggregateId, List<DomainEvent> events, int expectedVersion)
+    {
+        if (!_events.ContainsKey(aggregateId))
+            _events[aggregateId] = new List<DomainEvent>();
         
-        return order
+        // Check version (optimistic locking)
+        var currentVersion = _events[aggregateId].Count;
+        if (currentVersion != expectedVersion)
+            throw new ConcurrencyException(
+                $"Expected version {expectedVersion}, but current is {currentVersion}"
+            );
+        
+        // Append events
+        _events[aggregateId].AddRange(events);
+        
+        // Publish to event bus
+        foreach (var evt in events)
+        {
+            _publisher.PublishAsync("order-events", evt);
+        }
+        
+        return _events[aggregateId].Count;
+    }
 
-# Usage
-repository = OrderRepository(event_store)
+    public List<DomainEvent> GetEvents(string aggregateId, int fromVersion = 0)
+    {
+        if (!_events.ContainsKey(aggregateId))
+            return new List<DomainEvent>();
+        
+        return _events[aggregateId].Skip(fromVersion).ToList();
+    }
 
-# Create and modify order
-order = Order('ORD-123')
-order.create('CUST-456')
-order.add_item('PROD-001', 2, 29.99)
-order.add_item('PROD-002', 1, 49.99)
-order.set_shipping_address({
-    'street': '123 Main St',
-    'city': 'Boston',
-    'state': 'MA'
-})
-order.submit()
+    public void SaveSnapshot(string aggregateId, Dictionary<string, object> snapshot, int version)
+    {
+        _snapshots[aggregateId] = new Snapshot
+        {
+            State = snapshot,
+            Version = version,
+            Timestamp = DateTime.UtcNow
+        };
+    }
 
-repository.save(order)
+    public Snapshot GetSnapshot(string aggregateId)
+    {
+        return _snapshots.ContainsKey(aggregateId) ? _snapshots[aggregateId] : null;
+    }
+}
 
-# Later, load order (rebuilds from events)
-loaded_order = repository.get('ORD-123')
-print(f"Status: {loaded_order.status}")  # SUBMITTED
-print(f"Items: {len(loaded_order.items)}")  # 2
+public class Snapshot
+{
+    public Dictionary<string, object> State { get; set; }
+    public int Version { get; set; }
+    public DateTime Timestamp { get; set; }
+}
+
+// Repository
+public class OrderRepository
+{
+    private readonly EventStore _eventStore;
+
+    public OrderRepository(EventStore eventStore)
+    {
+        _eventStore = eventStore;
+    }
+
+    public void Save(Order order)
+    {
+        if (!order.UncommittedEvents.Any())
+            return;
+        
+        _eventStore.SaveEvents(
+            order.OrderId,
+            order.UncommittedEvents,
+            order.Version - order.UncommittedEvents.Count
+        );
+        
+        order.UncommittedEvents.Clear();
+        
+        // Save snapshot every 100 events
+        if (order.Version % 100 == 0)
+        {
+            _eventStore.SaveSnapshot(
+                order.OrderId,
+                new Dictionary<string, object>
+                {
+                    ["customer_id"] = order.CustomerId,
+                    ["items"] = order.Items,
+                    ["shipping_address"] = order.ShippingAddress,
+                    ["status"] = order.Status
+                },
+                order.Version
+            );
+        }
+    }
+
+    public Order Get(string orderId)
+    {
+        var order = new Order(orderId);
+        
+        // Try to load from snapshot
+        var snapshot = _eventStore.GetSnapshot(orderId);
+        
+        List<DomainEvent> events;
+        if (snapshot != null)
+        {
+            // Load snapshot state (in a real implementation, you'd restore properties properly)
+            var items = ((List<object>)snapshot.State["items"])
+                .Cast<Dictionary<string, object>>()
+                .Select(i => new OrderItem(
+                    i["product_id"].ToString(),
+                    Convert.ToInt32(i["quantity"]),
+                    Convert.ToDecimal(i["price"])
+                ))
+                .ToList();
+            
+            order.Items = items;
+            order.CustomerId = snapshot.State["customer_id"].ToString();
+            order.ShippingAddress = (Dictionary<string, string>)snapshot.State["shipping_address"];
+            order.Status = snapshot.State["status"].ToString();
+            order.Version = snapshot.Version;
+            
+            // Load events since snapshot
+            events = _eventStore.GetEvents(orderId, snapshot.Version);
+        }
+        else
+        {
+            // Load all events
+            events = _eventStore.GetEvents(orderId);
+        }
+        
+        // Replay events
+        order.LoadFromHistory(events);
+        
+        return order;
+    }
+}
+
+// Usage
+var eventStore = new EventStore(publisher);
+var repository = new OrderRepository(eventStore);
+
+// Create and modify order
+var order = Order.Create("ORD-123", "CUST-456");
+order.AddItem("PROD-001", 2, 29.99m);
+order.AddItem("PROD-002", 1, 49.99m);
+order.SetShippingAddress(new Dictionary<string, string>
+{
+    ["street"] = "123 Main St",
+    ["city"] = "Boston",
+    ["state"] = "MA"
+});
+order.Submit();
+
+repository.Save(order);
+
+// Later, load order (rebuilds from events)
+var loadedOrder = repository.Get("ORD-123");
+Console.WriteLine($"Status: {loadedOrder.Status}");  // SUBMITTED
+Console.WriteLine($"Items: {loadedOrder.Items.Count}");  // 2
 ```
 
 ### Time Travel with Event Sourcing
 
-```python
-def get_order_at_timestamp(order_id: str, timestamp: datetime) -> Order:
-    """See order state at specific point in time"""
-    all_events = event_store.get_events(order_id)
+```csharp
+public Order GetOrderAtTimestamp(string orderId, DateTime timestamp)
+{
+    // See order state at specific point in time
+    var allEvents = _eventStore.GetEvents(orderId);
     
-    # Filter events before timestamp
-    historical_events = [
-        e for e in all_events 
-        if e.timestamp <= timestamp
-    ]
+    // Filter events before timestamp
+    var historicalEvents = allEvents
+        .Where(e => e.Timestamp <= timestamp)
+        .ToList();
     
-    # Rebuild historical state
-    order = Order(order_id)
-    order.load_from_history(historical_events)
+    // Rebuild historical state
+    var order = new Order(orderId);
+    order.LoadFromHistory(historicalEvents);
     
-    return order
+    return order;
+}
 
-# What did the order look like yesterday?
-yesterday = datetime.utcnow() - timedelta(days=1)
-order_yesterday = get_order_at_timestamp('ORD-123', yesterday)
+// What did the order look like yesterday?
+var yesterday = DateTime.UtcNow.AddDays(-1);
+var orderYesterday = GetOrderAtTimestamp("ORD-123", yesterday);
 ```
 
 ## Saga Pattern
@@ -794,189 +1059,352 @@ graph TB
 
 Services react to events independently:
 
-```python
-# Order Service
-class OrderService:
-    def place_order(self, order):
-        # 1. Save order
-        self.repository.save(order)
+```csharp
+// Order Service
+public class OrderService
+{
+    private readonly IOrderRepository _repository;
+    private readonly IEventPublisher _eventPublisher;
+
+    public OrderService(IOrderRepository repository, IEventPublisher eventPublisher)
+    {
+        _repository = repository;
+        _eventPublisher = eventPublisher;
+    }
+
+    public void PlaceOrder(Order order)
+    {
+        // 1. Save order
+        _repository.Save(order);
         
-        # 2. Publish event
-        self.publish(OrderPlacedEvent(order))
+        // 2. Publish event
+        _eventPublisher.PublishAsync("order-events", new OrderPlacedEvent(order));
+    }
+}
 
-# Inventory Service
-class InventoryService:
-    def __init__(self):
-        self.consumer = KafkaConsumer('order-events', group_id='inventory')
-    
-    def consume_events(self):
-        for message in self.consumer:
-            event = message.value
-            
-            if event['type'] == 'OrderPlaced':
-                self.handle_order_placed(event)
-            elif event['type'] == 'PaymentFailed':
-                self.handle_payment_failed(event)
-    
-    def handle_order_placed(self, event):
-        try:
-            # Reserve inventory
-            self.reserve_inventory(event['order_id'], event['items'])
-            
-            # Publish success
-            self.publish(InventoryReservedEvent(event['order_id']))
-        except InsufficientInventoryError:
-            # Publish failure
-            self.publish(InventoryReservationFailedEvent(event['order_id']))
-    
-    def handle_payment_failed(self, event):
-        # Compensating transaction
-        self.release_inventory(event['order_id'])
+// Inventory Service
+public class InventoryService
+{
+    private readonly IConsumer<string, string> _consumer;
+    private readonly IEventPublisher _eventPublisher;
 
-# Payment Service
-class PaymentService:
-    def consume_events(self):
-        for message in self.consumer:
-            event = message.value
+    public InventoryService(IConsumer<string, string> consumer, IEventPublisher eventPublisher)
+    {
+        _consumer = consumer;
+        _consumer.Subscribe("order-events");
+        _eventPublisher = eventPublisher;
+    }
+
+    public async Task ConsumeEventsAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var result = _consumer.Consume(cancellationToken);
+            var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(result.Message.Value);
+            var eventType = eventData["type"].ToString();
             
-            if event['type'] == 'InventoryReserved':
-                self.handle_inventory_reserved(event)
-    
-    def handle_inventory_reserved(self, event):
-        try:
-            # Process payment
-            self.charge_customer(event['order_id'])
+            if (eventType == "OrderPlaced")
+            {
+                await HandleOrderPlacedAsync(eventData);
+            }
+            else if (eventType == "PaymentFailed")
+            {
+                await HandlePaymentFailedAsync(eventData);
+            }
+        }
+    }
+
+    private async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
+    {
+        try
+        {
+            // Reserve inventory
+            var orderId = eventData["order_id"].ToString();
+            var items = JsonSerializer.Deserialize<List<OrderItem>>(eventData["items"].ToString());
+            await ReserveInventoryAsync(orderId, items);
             
-            # Publish success
-            self.publish(PaymentReceivedEvent(event['order_id']))
-        except PaymentError:
-            # Publish failure (triggers inventory rollback)
-            self.publish(PaymentFailedEvent(event['order_id']))
+            // Publish success
+            await _eventPublisher.PublishAsync("order-events", new InventoryReservedEvent(orderId));
+        }
+        catch (InsufficientInventoryException)
+        {
+            // Publish failure
+            await _eventPublisher.PublishAsync("order-events", 
+                new InventoryReservationFailedEvent(eventData["order_id"].ToString()));
+        }
+    }
+
+    private async Task HandlePaymentFailedAsync(Dictionary<string, object> eventData)
+    {
+        // Compensating transaction
+        await ReleaseInventoryAsync(eventData["order_id"].ToString());
+    }
+
+    private Task ReserveInventoryAsync(string orderId, List<OrderItem> items) => Task.CompletedTask;
+    private Task ReleaseInventoryAsync(string orderId) => Task.CompletedTask;
+}
+
+// Payment Service
+public class PaymentService
+{
+    private readonly IConsumer<string, string> _consumer;
+    private readonly IEventPublisher _eventPublisher;
+
+    public PaymentService(IConsumer<string, string> consumer, IEventPublisher eventPublisher)
+    {
+        _consumer = consumer;
+        _consumer.Subscribe("order-events");
+        _eventPublisher = eventPublisher;
+    }
+
+    public async Task ConsumeEventsAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var result = _consumer.Consume(cancellationToken);
+            var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(result.Message.Value);
+            var eventType = eventData["type"].ToString();
+            
+            if (eventType == "InventoryReserved")
+            {
+                await HandleInventoryReservedAsync(eventData);
+            }
+        }
+    }
+
+    private async Task HandleInventoryReservedAsync(Dictionary<string, object> eventData)
+    {
+        try
+        {
+            // Process payment
+            var orderId = eventData["order_id"].ToString();
+            await ChargeCustomerAsync(orderId);
+            
+            // Publish success
+            await _eventPublisher.PublishAsync("order-events", new PaymentReceivedEvent(orderId));
+        }
+        catch (PaymentException)
+        {
+            // Publish failure (triggers inventory rollback)
+            await _eventPublisher.PublishAsync("order-events", 
+                new PaymentFailedEvent(eventData["order_id"].ToString()));
+        }
+    }
+
+    private Task ChargeCustomerAsync(string orderId) => Task.CompletedTask;
+}
+
+// Event records
+public record OrderPlacedEvent(Order Order);
+public record InventoryReservedEvent(string OrderId);
+public record InventoryReservationFailedEvent(string OrderId);
+public record PaymentReceivedEvent(string OrderId);
+public record PaymentFailedEvent(string OrderId);
 ```
 
 ### Orchestration (Centralized)
 
 Central orchestrator manages the saga:
 
-```python
-class OrderFulfillmentSaga:
-    def __init__(self, order_id):
-        self.order_id = order_id
-        self.state = 'STARTED'
-        self.compensations = []
+```csharp
+public class OrderFulfillmentSaga
+{
+    private readonly string _orderId;
+    private readonly IInventoryService _inventoryService;
+    private readonly IPaymentService _paymentService;
+    private readonly IShippingService _shippingService;
+    private readonly IEventPublisher _eventPublisher;
     
-    async def execute(self, order_request):
-        try:
-            # Step 1: Reserve Inventory
-            inventory_result = await self.inventory_service.reserve(
-                order_request.items
-            )
-            self.compensations.append(
-                lambda: self.inventory_service.release(inventory_result.reservation_id)
-            )
-            
-            # Step 2: Process Payment
-            payment_result = await self.payment_service.charge(
-                order_request.customer_id,
-                order_request.amount
-            )
-            self.compensations.append(
-                lambda: self.payment_service.refund(payment_result.payment_id)
-            )
-            
-            # Step 3: Schedule Shipping
-            shipping_result = await self.shipping_service.schedule(
-                order_request.shipping_address
-            )
-            # No compensation for shipping (can't un-ship)
-            
-            # Saga succeeded
-            self.state = 'COMPLETED'
-            await self.publish(OrderFulfilledEvent(self.order_id))
-            
-            return shipping_result
-            
-        except Exception as e:
-            # Saga failed - run compensations
-            await self.compensate()
-            self.state = 'FAILED'
-            await self.publish(OrderFailedEvent(self.order_id, str(e)))
-            raise
-    
-    async def compensate(self):
-        """Run compensating transactions in reverse order"""
-        for compensation in reversed(self.compensations):
-            try:
-                await compensation()
-            except Exception as e:
-                logger.error(f"Compensation failed: {e}")
-                # Continue with other compensations
+    private string _state = "STARTED";
+    private readonly List<Func<Task>> _compensations = new();
 
-# Saga Orchestrator
-class SagaOrchestrator:
-    def __init__(self):
-        self.active_sagas = {}
-    
-    async def start_order_saga(self, order_request):
-        saga = OrderFulfillmentSaga(order_request.order_id)
-        self.active_sagas[order_request.order_id] = saga
+    public OrderFulfillmentSaga(
+        string orderId,
+        IInventoryService inventoryService,
+        IPaymentService paymentService,
+        IShippingService shippingService,
+        IEventPublisher eventPublisher)
+    {
+        _orderId = orderId;
+        _inventoryService = inventoryService;
+        _paymentService = paymentService;
+        _shippingService = shippingService;
+        _eventPublisher = eventPublisher;
+    }
+
+    public async Task<ShippingResult> ExecuteAsync(OrderRequest orderRequest)
+    {
+        try
+        {
+            // Step 1: Reserve Inventory
+            var inventoryResult = await _inventoryService.ReserveAsync(orderRequest.Items);
+            _compensations.Add(() => _inventoryService.ReleaseAsync(inventoryResult.ReservationId));
+            
+            // Step 2: Process Payment
+            var paymentResult = await _paymentService.ChargeAsync(
+                orderRequest.CustomerId,
+                orderRequest.Amount
+            );
+            _compensations.Add(() => _paymentService.RefundAsync(paymentResult.PaymentId));
+            
+            // Step 3: Schedule Shipping
+            var shippingResult = await _shippingService.ScheduleAsync(orderRequest.ShippingAddress);
+            // No compensation for shipping (can't un-ship)
+            
+            // Saga succeeded
+            _state = "COMPLETED";
+            await _eventPublisher.PublishAsync("order-events", new OrderFulfilledEvent(_orderId));
+            
+            return shippingResult;
+        }
+        catch (Exception ex)
+        {
+            // Saga failed - run compensations
+            await CompensateAsync();
+            _state = "FAILED";
+            await _eventPublisher.PublishAsync("order-events", 
+                new OrderFailedEvent(_orderId, ex.Message));
+            throw;
+        }
+    }
+
+    private async Task CompensateAsync()
+    {
+        // Run compensating transactions in reverse order
+        for (int i = _compensations.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                await _compensations[i]();
+            }
+            catch (Exception ex)
+            {
+                // Log and continue with other compensations
+                Console.WriteLine($"Compensation failed: {ex.Message}");
+            }
+        }
+    }
+}
+
+// Saga Orchestrator
+public class SagaOrchestrator
+{
+    private readonly Dictionary<string, OrderFulfillmentSaga> _activeSagas = new();
+
+    public async Task<ShippingResult> StartOrderSagaAsync(OrderRequest orderRequest)
+    {
+        var saga = new OrderFulfillmentSaga(
+            orderRequest.OrderId,
+            inventoryService,
+            paymentService,
+            shippingService,
+            eventPublisher
+        );
         
-        try:
-            result = await saga.execute(order_request)
-            return result
-        finally:
-            del self.active_sagas[order_request.order_id]
+        _activeSagas[orderRequest.OrderId] = saga;
+        
+        try
+        {
+            return await saga.ExecuteAsync(orderRequest);
+        }
+        finally
+        {
+            _activeSagas.Remove(orderRequest.OrderId);
+        }
+    }
+}
+
+// Supporting types
+public record OrderRequest(string OrderId, string CustomerId, List<OrderItem> Items, 
+    decimal Amount, ShippingAddress ShippingAddress);
+public record InventoryResult(string ReservationId);
+public record PaymentResult(string PaymentId);
+public record ShippingResult(string TrackingNumber);
+public record OrderFulfilledEvent(string OrderId);
+public record OrderFailedEvent(string OrderId, string Reason);
 ```
 
 ### Saga State Persistence
 
-```python
-from enum import Enum
+```csharp
+public enum SagaState
+{
+    Started,
+    InventoryReserved,
+    PaymentProcessed,
+    ShippingScheduled,
+    Completed,
+    Failed,
+    Compensating
+}
 
-class SagaState(Enum):
-    STARTED = "STARTED"
-    INVENTORY_RESERVED = "INVENTORY_RESERVED"
-    PAYMENT_PROCESSED = "PAYMENT_PROCESSED"
-    SHIPPING_SCHEDULED = "SHIPPING_SCHEDULED"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    COMPENSATING = "COMPENSATING"
+public class PersistentSaga
+{
+    private readonly string _sagaId;
+    private readonly ISagaRepository _repository;
+    
+    public SagaState State { get; private set; }
+    public List<string> StepsCompleted { get; private set; }
+    public Dictionary<string, object> CompensationData { get; private set; }
 
-class PersistentSaga:
-    def __init__(self, saga_id, db):
-        self.saga_id = saga_id
-        self.db = db
-        self.state = SagaState.STARTED
-        self.steps_completed = []
-        self.compensation_data = {}
-    
-    def transition_to(self, new_state):
-        """Persist state transition"""
-        self.state = new_state
-        self.db.update_saga(self.saga_id, {
-            'state': new_state.value,
-            'steps_completed': self.steps_completed,
-            'compensation_data': self.compensation_data
-        })
-    
-    def record_step(self, step_name, data):
-        """Record completed step"""
-        self.steps_completed.append(step_name)
-        self.compensation_data[step_name] = data
-        self.db.update_saga(self.saga_id, {
-            'steps_completed': self.steps_completed,
-            'compensation_data': self.compensation_data
-        })
-    
-    @classmethod
-    def recover(cls, saga_id, db):
-        """Recover saga from database"""
-        saga_data = db.get_saga(saga_id)
-        saga = cls(saga_id, db)
-        saga.state = SagaState(saga_data['state'])
-        saga.steps_completed = saga_data['steps_completed']
-        saga.compensation_data = saga_data['compensation_data']
-        return saga
+    public PersistentSaga(string sagaId, ISagaRepository repository)
+    {
+        _sagaId = sagaId;
+        _repository = repository;
+        State = SagaState.Started;
+        StepsCompleted = new List<string>();
+        CompensationData = new Dictionary<string, object>();
+    }
+
+    public void TransitionTo(SagaState newState)
+    {
+        // Persist state transition
+        State = newState;
+        _repository.UpdateSaga(_sagaId, new SagaData
+        {
+            State = newState.ToString(),
+            StepsCompleted = StepsCompleted,
+            CompensationData = CompensationData
+        });
+    }
+
+    public void RecordStep(string stepName, object data)
+    {
+        // Record completed step
+        StepsCompleted.Add(stepName);
+        CompensationData[stepName] = data;
+        _repository.UpdateSaga(_sagaId, new SagaData
+        {
+            State = State.ToString(),
+            StepsCompleted = StepsCompleted,
+            CompensationData = CompensationData
+        });
+    }
+
+    public static PersistentSaga Recover(string sagaId, ISagaRepository repository)
+    {
+        // Recover saga from database
+        var sagaData = repository.GetSaga(sagaId);
+        var saga = new PersistentSaga(sagaId, repository);
+        saga.State = Enum.Parse<SagaState>(sagaData.State);
+        saga.StepsCompleted = sagaData.StepsCompleted;
+        saga.CompensationData = sagaData.CompensationData;
+        return saga;
+    }
+}
+
+public class SagaData
+{
+    public string State { get; set; }
+    public List<string> StepsCompleted { get; set; }
+    public Dictionary<string, object> CompensationData { get; set; }
+}
+
+public interface ISagaRepository
+{
+    SagaData GetSaga(string sagaId);
+    void UpdateSaga(string sagaId, SagaData data);
+}
 ```
 
 ## Outbox Pattern
@@ -1009,197 +1437,300 @@ sequenceDiagram
 
 ### Implementation
 
-```python
-from sqlalchemy import Column, String, DateTime, Boolean, Text, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from datetime import datetime
-import json
+```csharp
+using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
-Base = declarative_base()
-
-class OutboxEvent(Base):
-    __tablename__ = 'outbox'
+[Table("outbox")]
+public class OutboxEvent
+{
+    [Key]
+    [Column("event_id")]
+    public string EventId { get; set; }
     
-    event_id = Column(String(50), primary_key=True)
-    aggregate_type = Column(String(50), nullable=False)
-    aggregate_id = Column(String(50), nullable=False)
-    event_type = Column(String(50), nullable=False)
-    payload = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    published = Column(Boolean, default=False)
-    published_at = Column(DateTime, nullable=True)
-
-# Order Service with Outbox
-class OrderService:
-    def __init__(self, db_session):
-        self.session = db_session
+    [Required]
+    [Column("aggregate_type")]
+    public string AggregateType { get; set; }
     
-    def place_order(self, order_data):
-        try:
-            # Start transaction
-            self.session.begin()
+    [Required]
+    [Column("aggregate_id")]
+    public string AggregateId { get; set; }
+    
+    [Required]
+    [Column("event_type")]
+    public string EventType { get; set; }
+    
+    [Required]
+    [Column("payload")]
+    public string Payload { get; set; }
+    
+    [Column("created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    
+    [Column("published")]
+    public bool Published { get; set; } = false;
+    
+    [Column("published_at")]
+    public DateTime? PublishedAt { get; set; }
+}
+
+// Order Service with Outbox
+public class OrderService
+{
+    private readonly ApplicationDbContext _context;
+
+    public OrderService(ApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<string> PlaceOrderAsync(OrderData orderData)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            // 1. Save order to database
+            var order = new Order
+            {
+                OrderId = Guid.NewGuid().ToString(),
+                CustomerId = orderData.CustomerId,
+                TotalAmount = orderData.TotalAmount
+            };
+            _context.Orders.Add(order);
             
-            # 1. Save order to database
-            order = Order(**order_data)
-            self.session.add(order)
-            
-            # 2. Save event to outbox (same transaction!)
-            event = OutboxEvent(
-                event_id=str(uuid.uuid4()),
-                aggregate_type='Order',
-                aggregate_id=order.order_id,
-                event_type='OrderPlaced',
-                payload=json.dumps({
-                    'order_id': order.order_id,
-                    'customer_id': order.customer_id,
-                    'total_amount': order.total_amount
+            // 2. Save event to outbox (same transaction!)
+            var outboxEvent = new OutboxEvent
+            {
+                EventId = Guid.NewGuid().ToString(),
+                AggregateType = "Order",
+                AggregateId = order.OrderId,
+                EventType = "OrderPlaced",
+                Payload = JsonSerializer.Serialize(new
+                {
+                    order_id = order.OrderId,
+                    customer_id = order.CustomerId,
+                    total_amount = order.TotalAmount
                 })
-            )
-            self.session.add(event)
+            };
+            _context.Set<OutboxEvent>().Add(outboxEvent);
             
-            # 3. Commit transaction (atomic!)
-            self.session.commit()
+            // 3. Commit transaction (atomic!)
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
             
-            return order.order_id
-            
-        except Exception as e:
-            self.session.rollback()
-            raise
+            return order.OrderId;
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+}
 
-# Outbox Publisher (separate process)
-class OutboxPublisher:
-    def __init__(self, db_session, kafka_producer):
-        self.session = db_session
-        self.producer = kafka_producer
-    
-    def run(self):
-        """Continuously poll and publish events"""
-        while True:
-            try:
-                # Get unpublished events
-                events = self.session.query(OutboxEvent)\
-                    .filter(OutboxEvent.published == False)\
-                    .order_by(OutboxEvent.created_at)\
-                    .limit(100)\
-                    .all()
+// Outbox Publisher (separate process)
+public class OutboxPublisher : BackgroundService
+{
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IProducer<string, string> _producer;
+
+    public OutboxPublisher(IServiceProvider serviceProvider, IProducer<string, string> producer)
+    {
+        _serviceProvider = serviceProvider;
+        _producer = producer;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 
-                for event in events:
-                    self.publish_event(event)
+                // Get unpublished events
+                var events = await context.Set<OutboxEvent>()
+                    .Where(e => !e.Published)
+                    .OrderBy(e => e.CreatedAt)
+                    .Take(100)
+                    .ToListAsync(stoppingToken);
                 
-                time.sleep(1)  # Poll interval
+                foreach (var evt in events)
+                {
+                    await PublishEventAsync(context, evt, stoppingToken);
+                }
                 
-            except Exception as e:
-                logger.error(f"Error publishing events: {e}")
-                time.sleep(5)
-    
-    def publish_event(self, event: OutboxEvent):
-        try:
-            # Publish to Kafka
-            self.producer.send(
-                topic='orders',
-                key=event.aggregate_id,
-                value=json.loads(event.payload)
-            )
-            self.producer.flush()
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                // Log error and continue
+                Console.WriteLine($"Error publishing events: {ex.Message}");
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
+        }
+    }
+
+    private async Task PublishEventAsync(ApplicationDbContext context, OutboxEvent evt, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Publish to Kafka
+            await _producer.ProduceAsync(
+                "orders",
+                new Message<string, string>
+                {
+                    Key = evt.AggregateId,
+                    Value = evt.Payload
+                },
+                cancellationToken
+            );
             
-            # Mark as published
-            event.published = True
-            event.published_at = datetime.utcnow()
-            self.session.commit()
+            // Mark as published
+            evt.Published = true;
+            evt.PublishedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(cancellationToken);
             
-            logger.info(f"Published event {event.event_id}")
-            
-        except Exception as e:
-            self.session.rollback()
-            logger.error(f"Failed to publish {event.event_id}: {e}")
+            Console.WriteLine($"Published event {evt.EventId}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to publish {evt.EventId}: {ex.Message}");
+            throw;
+        }
+    }
+}
 ```
 
 ## Inbox Pattern (Idempotent Consumer)
 
 Problem: Ensure each event is processed exactly once.
 
-```python
-class InboxEvent(Base):
-    __tablename__ = 'inbox'
+```csharp
+[Table("inbox")]
+public class InboxEvent
+{
+    [Key]
+    [Column("event_id")]
+    public string EventId { get; set; }
     
-    event_id = Column(String(50), primary_key=True)
-    received_at = Column(DateTime, default=datetime.utcnow)
-    processed_at = Column(DateTime, nullable=True)
+    [Column("received_at")]
+    public DateTime ReceivedAt { get; set; } = DateTime.UtcNow;
+    
+    [Column("processed_at")]
+    public DateTime? ProcessedAt { get; set; }
+}
 
-class IdempotentConsumer:
-    def __init__(self, db_session):
-        self.session = db_session
-    
-    def process_event(self, event):
-        event_id = event['event_id']
+public class IdempotentConsumer
+{
+    private readonly ApplicationDbContext _context;
+
+    public IdempotentConsumer(ApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task ProcessEventAsync(Dictionary<string, object> eventData)
+    {
+        var eventId = eventData["event_id"].ToString();
         
-        try:
-            self.session.begin()
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            // Check if already processed
+            var inbox = await _context.Set<InboxEvent>()
+                .FirstOrDefaultAsync(e => e.EventId == eventId);
             
-            # Check if already processed
-            inbox = self.session.query(InboxEvent)\
-                .filter(InboxEvent.event_id == event_id)\
-                .first()
+            if (inbox != null && inbox.ProcessedAt.HasValue)
+            {
+                Console.WriteLine($"Event {eventId} already processed");
+                await transaction.CommitAsync();
+                return;
+            }
             
-            if inbox and inbox.processed_at:
-                logger.info(f"Event {event_id} already processed")
-                self.session.commit()
-                return
+            // Process event
+            await DoBusinessLogicAsync(eventData);
             
-            # Process event
-            self.do_business_logic(event)
+            // Record as processed
+            if (inbox == null)
+            {
+                inbox = new InboxEvent { EventId = eventId };
+                _context.Set<InboxEvent>().Add(inbox);
+            }
             
-            # Record as processed
-            if not inbox:
-                inbox = InboxEvent(event_id=event_id)
-                self.session.add(inbox)
+            inbox.ProcessedAt = DateTime.UtcNow;
             
-            inbox.processed_at = datetime.utcnow()
-            
-            self.session.commit()
-            
-        except Exception as e:
-            self.session.rollback()
-            raise
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    private Task DoBusinessLogicAsync(Dictionary<string, object> eventData)
+    {
+        // Business logic implementation
+        return Task.CompletedTask;
+    }
+}
 ```
 
 ## Complete E-Commerce System
 
 Putting it all together:
 
-```python
-# Architecture combining all patterns
+```csharp
+// Architecture combining all patterns
 
-# 1. CQRS: Separate read/write
-# 2. Event Sourcing: Orders stored as events
-# 3. Saga: Order fulfillment workflow
-# 4. Outbox: Atomic writes + events
-# 5. Inbox: Idempotent consumers
+// 1. CQRS: Separate read/write
+// 2. Event Sourcing: Orders stored as events
+// 3. Saga: Order fulfillment workflow
+// 4. Outbox: Atomic writes + events
+// 5. Inbox: Idempotent consumers
 
-class ECommerceSystem:
-    """Complete event-driven e-commerce system"""
+public class ECommerceSystem
+{
+    // Write side (CQRS)
+    public OrderCommandHandler CommandHandler { get; }
+    public EventStore EventStore { get; }
+    public OrderRepository Repository { get; }
     
-    def __init__(self):
-        # Write side (CQRS)
-        self.command_handler = OrderCommandHandler()
-        self.event_store = EventStore()
-        self.repository = OrderRepository(self.event_store)
-        
-        # Read side (CQRS)
-        self.query_service = OrderQueryService()
-        self.projections = [
-            OrderListProjection(),
-            OrderDetailsProjection(),
-            AnalyticsProjection()
-        ]
-        
-        # Saga orchestrator
-        self.saga_orchestrator = SagaOrchestrator()
-        
-        # Outbox/Inbox
-        self.outbox_publisher = OutboxPublisher()
-        self.inbox_consumer = IdempotentConsumer()
+    // Read side (CQRS)
+    public OrderQueryService QueryService { get; }
+    public List<IProjection> Projections { get; }
+    
+    // Saga orchestrator
+    public SagaOrchestrator SagaOrchestrator { get; }
+    
+    // Outbox/Inbox
+    public OutboxPublisher OutboxPublisher { get; }
+    public IdempotentConsumer InboxConsumer { get; }
+
+    public ECommerceSystem(
+        OrderCommandHandler commandHandler,
+        EventStore eventStore,
+        OrderRepository repository,
+        OrderQueryService queryService,
+        List<IProjection> projections,
+        SagaOrchestrator sagaOrchestrator,
+        OutboxPublisher outboxPublisher,
+        IdempotentConsumer inboxConsumer)
+    {
+        CommandHandler = commandHandler;
+        EventStore = eventStore;
+        Repository = repository;
+        QueryService = queryService;
+        Projections = projections;
+        SagaOrchestrator = sagaOrchestrator;
+        OutboxPublisher = outboxPublisher;
+        InboxConsumer = inboxConsumer;
+    }
+}
 ```
 
 ## Key Takeaways
