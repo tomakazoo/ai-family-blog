@@ -5,48 +5,41 @@ excerpt: "Now comes the hard part: running it reliably in production"
 tags: ["EDA", "Kafka", "Production-Ready", "Event-Driven", "Architecture"]
 coverImage: "/images/blog/production.jpg"
 ---
-# Part 7: Operating Event-Driven Systems in Production
+
+# Part 7: Operating Event-Driven Systems in Production - Complete Guide with Working Demo
 
 ## Introduction
 
-You've built a sophisticated event-driven system. Now comes the hard part: running it reliably in production. This part covers everything you need to operate event-driven systems at scale.
+You've learned the theory of event-driven architecture, built your first Kafka application, and explored advanced patterns. Now comes the hardest part: **running it reliably in production**. 
+
+In this comprehensive guide, we'll cover everything you need to operate event-driven systems at scale, and then build a complete working demonstration you can run on your laptop.
 
 **What we'll cover:**
-- Monitoring and observability
-- Debugging distributed systems
-- Testing strategies
-- Deployment patterns
-- Incident response
-- Best practices
 
+**Part A: Production Operations Theory**
+* Monitoring and observability
+* Debugging distributed systems
+* Testing strategies
+* Deployment patterns
+* Incident response
+* Best practices
+
+**Part B: Building a Complete Working Demo**
+* Full C# microservices with Kafka
+* Prometheus + Grafana + Jaeger observability stack
+* Interactive React UI
+* Load testing tools
+* Step-by-step implementation
+
+Let's dive in!
+
+---
+
+# Part A: Production Operations Theory
+
+## The Three Pillars of Observability
 ```mermaid
-graph TB
-    subgraph "Production Readiness"
-        A[Monitoring<br/>& Alerting]
-        B[Distributed<br/>Tracing]
-        C[Testing<br/>Strategy]
-        D[Deployment<br/>Patterns]
-        E[Incident<br/>Response]
-        F[Performance<br/>Tuning]
-    end
-    
-    G[Production<br/>System]
-    
-    A --> G
-    B --> G
-    C --> G
-    D --> G
-    E --> G
-    F --> G
-    
-    style G fill:#00b894
-```
 
-## Monitoring and Observability
-
-### The Three Pillars
-
-```mermaid
 graph LR
     subgraph "Observability"
         M[Metrics<br/>What is happening?]
@@ -59,173 +52,388 @@ graph LR
     T --> Insight
     
     style Insight fill:#00b894
-```
+````
 
-### Key Metrics to Track
+### 1. Metrics - Key Performance Indicators
 
-**Producer Metrics:**
-```python
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
+**Producer Metrics to Track:**
+````csharp
+using Prometheus;
 
-# Define metrics
-events_produced_total = Counter(
-    'events_produced_total',
-    'Total events produced',
-    ['topic', 'event_type']
-)
+// Events produced
+var eventsProduced = Metrics.CreateCounter(
+    "events_produced_total",
+    "Total events produced",
+    new CounterConfiguration { LabelNames = new[] { "topic", "event_type" } });
 
-events_failed_total = Counter(
-    'events_failed_total',
-    'Total failed event productions',
-    ['topic', 'error_type']
-)
+// Production failures
+var eventsFailed = Metrics.CreateCounter(
+    "events_failed_total",
+    "Total failed event productions",
+    new CounterConfiguration { LabelNames = new[] { "topic", "error_type" } });
 
-event_production_duration = Histogram(
-    'event_production_duration_seconds',
-    'Time to produce event',
-    ['topic']
-)
+// Production latency
+var productionDuration = Metrics.CreateHistogram(
+    "event_production_duration_seconds",
+    "Time to produce event",
+    new HistogramConfiguration { LabelNames = new[] { "topic" } });
 
-kafka_batch_size = Histogram(
-    'kafka_batch_size_bytes',
-    'Kafka batch size in bytes',
-    ['topic']
-)
+// Usage
+eventsProduced.WithLabels("orders", "OrderPlaced").Inc();
+using (productionDuration.WithLabels("orders").NewTimer())
+{
+    await producer.ProduceAsync("orders", message);
+}
+````
 
-# In producer code
-with event_production_duration.labels(topic='orders').time():
-    producer.send('orders', event)
-    events_produced_total.labels(topic='orders', event_type='OrderPlaced').inc()
-```
+**Consumer Metrics to Track:**
+````csharp
+// Consumer lag - CRITICAL metric
+var consumerLag = Metrics.CreateGauge(
+    "consumer_lag",
+    "Consumer lag in messages",
+    new GaugeConfiguration { 
+        LabelNames = new[] { "consumer_group", "topic", "partition" } 
+    });
 
-**Consumer Metrics:**
-```python
-consumer_lag = Gauge(
-    'consumer_lag',
-    'Consumer lag in messages',
-    ['consumer_group', 'topic', 'partition']
-)
+// Events consumed
+var eventsConsumed = Metrics.CreateCounter(
+    "events_consumed_total",
+    "Total events consumed",
+    new CounterConfiguration { 
+        LabelNames = new[] { "consumer_group", "topic", "event_type" } 
+    });
 
-events_consumed_total = Counter(
-    'events_consumed_total',
-    'Total events consumed',
-    ['consumer_group', 'topic', 'event_type']
-)
+// Processing duration
+var processingDuration = Metrics.CreateHistogram(
+    "event_processing_duration_seconds",
+    "Time to process event",
+    new HistogramConfiguration { 
+        LabelNames = new[] { "consumer_group", "event_type" } 
+    });
 
-event_processing_duration = Histogram(
-    'event_processing_duration_seconds',
-    'Time to process event',
-    ['consumer_group', 'event_type']
-)
-
-processing_errors_total = Counter(
-    'processing_errors_total',
-    'Total processing errors',
-    ['consumer_group', 'error_type']
-)
-
-rebalances_total = Counter(
-    'consumer_rebalances_total',
-    'Total consumer rebalances',
-    ['consumer_group']
-)
-
-# In consumer code
-with event_processing_duration.labels(
-    consumer_group='order-processor',
-    event_type='OrderPlaced'
-).time():
-    try:
-        process_event(event)
-        events_consumed_total.labels(
-            consumer_group='order-processor',
-            topic='orders',
-            event_type='OrderPlaced'
-        ).inc()
-    except Exception as e:
-        processing_errors_total.labels(
-            consumer_group='order-processor',
-            error_type=type(e).__name__
-        ).inc()
-        raise
-```
+// Processing errors
+var processingErrors = Metrics.CreateCounter(
+    "processing_errors_total",
+    "Total processing errors",
+    new CounterConfiguration { 
+        LabelNames = new[] { "consumer_group", "error_type" } 
+    });
+````
 
 **Business Metrics:**
-```python
-orders_placed_total = Counter(
-    'orders_placed_total',
-    'Total orders placed',
-    ['status']
-)
+````csharp
+// Track business outcomes, not just technical metrics
+var ordersPlaced = Metrics.CreateCounter(
+    "orders_placed_total",
+    "Total orders placed",
+    new CounterConfiguration { LabelNames = new[] { "status" } });
 
-order_value = Histogram(
-    'order_value_dollars',
-    'Order value in dollars',
-    buckets=[10, 50, 100, 500, 1000, 5000]
-)
+var orderValue = Metrics.CreateHistogram(
+    "order_value_dollars",
+    "Order value in dollars",
+    new HistogramConfiguration { 
+        Buckets = new[] { 10, 50, 100, 500, 1000, 5000 } 
+    });
 
-saga_duration = Histogram(
-    'saga_duration_seconds',
-    'Saga execution time',
-    ['saga_type', 'status']
-)
+var sagaDuration = Metrics.CreateHistogram(
+    "saga_duration_seconds",
+    "Saga execution time",
+    new HistogramConfiguration { 
+        LabelNames = new[] { "saga_type", "status" } 
+    });
+````
 
-saga_failures_total = Counter(
-    'saga_failures_total',
-    'Total saga failures',
-    ['saga_type', 'failure_reason']
-)
-```
+### 2. Distributed Tracing - Following Requests Across Services
 
-### Prometheus Setup
+**OpenTelemetry Setup in C#:**
+````csharp
+using OpenTelemetry;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Resources;
+using System.Diagnostics;
 
-**docker-compose.yml:**
-```yaml
-prometheus:
-  image: prom/prometheus:latest
-  ports:
-    - "9090:9090"
-  volumes:
-    - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    - prometheus-data:/prometheus
-  command:
-    - '--config.file=/etc/prometheus/prometheus.yml'
+// In Program.cs
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracerProvider =>
+    {
+        tracerProvider
+            .SetResourceBuilder(ResourceBuilder.CreateDefault()
+                .AddService("order-service"))
+            .AddSource("order-service")
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddJaegerExporter(options =>
+            {
+                options.AgentHost = "localhost";
+                options.AgentPort = 6831;
+            });
+    });
 
-grafana:
-  image: grafana/grafana:latest
-  ports:
-    - "3000:3000"
-  volumes:
-    - grafana-data:/var/lib/grafana
-  environment:
-    - GF_SECURITY_ADMIN_PASSWORD=admin
-  depends_on:
-    - prometheus
-```
+// Create ActivitySource
+var activitySource = new ActivitySource("order-service");
 
-**prometheus.yml:**
-```yaml
-global:
-  scrape_interval: 15s
+// Producer with tracing
+public async Task ProduceOrderEvent(Order order)
+{
+    using var activity = activitySource.StartActivity(
+        "produce_order_event",
+        ActivityKind.Producer);
+    
+    activity?.SetTag("order.id", order.OrderId);
+    activity?.SetTag("order.amount", order.TotalAmount);
+    
+    // Add correlation ID to event
+    var correlationId = activity?.Id ?? Guid.NewGuid().ToString();
+    
+    var eventData = new OrderPlacedEvent
+    {
+        EventId = Guid.NewGuid().ToString(),
+        CorrelationId = correlationId,
+        OrderId = order.OrderId,
+        // ... rest of event
+    };
+    
+    // Add trace context to Kafka headers
+    var headers = new Headers();
+    headers.Add("traceparent", Encoding.UTF8.GetBytes(activity?.Id ?? ""));
+    
+    await producer.ProduceAsync("orders", new Message<string, string>
+    {
+        Key = order.OrderId,
+        Value = JsonSerializer.Serialize(eventData),
+        Headers = headers
+    });
+    
+    activity?.AddEvent(new ActivityEvent("Event published to Kafka"));
+}
 
-scrape_configs:
-  - job_name: 'order-service'
-    static_configs:
-      - targets: ['order-service:8000']
-  
-  - job_name: 'email-service'
-    static_configs:
-      - targets: ['email-service:8000']
-  
-  - job_name: 'kafka'
-    static_configs:
-      - targets: ['kafka-exporter:9308']
-```
+// Consumer with tracing
+public async Task ConsumeEvents()
+{
+    foreach (var message in consumer.Consume())
+    {
+        var eventData = JsonSerializer.Deserialize<OrderPlacedEvent>(message.Value);
+        
+        // Extract trace context
+        var traceParent = message.Headers
+            .FirstOrDefault(h => h.Key == "traceparent")
+            ?.GetValueBytes();
+        
+        var parentContext = traceParent != null 
+            ? ActivityContext.Parse(Encoding.UTF8.GetString(traceParent), null)
+            : default;
+        
+        using var activity = activitySource.StartActivity(
+            "process_order_event",
+            ActivityKind.Consumer,
+            parentContext);
+        
+        activity?.SetTag("event.type", eventData.EventType);
+        activity?.SetTag("order.id", eventData.OrderId);
+        
+        try
+        {
+            await ProcessOrder(eventData);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
+            throw;
+        }
+    }
+}
+````
 
-### Alert Rules
+### 3. Correlation IDs - Tracking Requests End-to-End
+````csharp
+// ASP.NET Core Middleware for Correlation IDs
+public class CorrelationMiddleware
+{
+    private readonly RequestDelegate _next;
+    private const string CorrelationIdHeader = "X-Correlation-ID";
+
+    public CorrelationMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        var correlationId = context.Request.Headers[CorrelationIdHeader]
+            .FirstOrDefault() ?? Guid.NewGuid().ToString();
+
+        context.Items["CorrelationId"] = correlationId;
+        context.Response.Headers[CorrelationIdHeader] = correlationId;
+
+        using (Activity.Current?.AddBaggage("correlation_id", correlationId))
+        {
+            await _next(context);
+        }
+    }
+}
+
+// Structured logging with correlation ID
+public class CorrelationLogEnricher : ILogEventEnricher
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public CorrelationLogEnricher(IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
+    {
+        var correlationId = _httpContextAccessor.HttpContext?
+            .Items["CorrelationId"]?.ToString();
+        
+        if (correlationId != null)
+        {
+            logEvent.AddPropertyIfAbsent(
+                propertyFactory.CreateProperty("CorrelationId", correlationId));
+        }
+    }
+}
+````
+
+## Debugging Distributed Systems
+
+### Common Issue #1: Event Lost
+```mermaid
+
+graph TD
+    A[Event Lost?] --> B{Check Producer Logs}
+    B -->|No send| C[Producer never sent]
+    B -->|Sent| D{Check Kafka Topic}
+    
+    D -->|Not in topic| E[Check ACK settings<br/>Check broker logs]
+    D -->|In topic| F{Check Consumer}
+    
+    F -->|Not consuming| G[Check consumer<br/>subscription/offset]
+    F -->|Consuming| H{Check Processing}
+    
+    H -->|Not processing| I[Check consumer logs<br/>for errors]
+    
+    style C fill:#ff7675
+    style E fill:#fdcb6e
+    style I fill:#fdcb6e
+````
+
+**Debug Script in C#:**
+````csharp
+public async Task DebugLostEvent(string eventId)
+{
+    Console.WriteLine($"🔍 Debugging event: {eventId}");
+    
+    // 1. Check producer logs
+    var producerLogs = await SearchLogs("order-service", eventId);
+    if (producerLogs.Count == 0)
+    {
+        Console.WriteLine("❌ Event never produced");
+        return;
+    }
+    Console.WriteLine("✅ Event was produced");
+    
+    // 2. Check Kafka topic
+    var foundInKafka = await SearchKafkaTopic("orders", eventId);
+    if (!foundInKafka.Found)
+    {
+        Console.WriteLine("❌ Event not in Kafka - check producer ACK settings");
+        var brokerLogs = await GetBrokerLogs(producerLogs.Timestamp);
+        Console.WriteLine($"   Broker logs: {brokerLogs}");
+        return;
+    }
+    Console.WriteLine($"✅ Event in Kafka at offset {foundInKafka.Offset}");
+    
+    // 3. Check consumer offset
+    var consumerOffset = await GetConsumerOffset(
+        "email-service", "orders", foundInKafka.Partition);
+    
+    if (consumerOffset < foundInKafka.Offset)
+    {
+        var lag = foundInKafka.Offset - consumerOffset;
+        Console.WriteLine($"⚠️  Consumer hasn't reached this offset yet (lag: {lag})");
+        return;
+    }
+    Console.WriteLine("✅ Consumer should have processed this event");
+    
+    // 4. Check consumer logs
+    var consumerLogs = await SearchLogs("email-service", eventId);
+    if (consumerLogs.Count == 0)
+    {
+        Console.WriteLine("❌ Consumer didn't process event - check for errors");
+        var errors = await GetConsumerErrors("email-service");
+        Console.WriteLine($"   Recent errors: {string.Join(", ", errors)}");
+        return;
+    }
+    Console.WriteLine("✅ Consumer processed event");
+}
+````
+
+### Common Issue #2: High Consumer Lag
+````csharp
+public async Task DiagnoseConsumerLag(string consumerGroup, string topic)
+{
+    Console.WriteLine($"📊 Consumer Lag Analysis for {consumerGroup}");
+    
+    var lagInfo = await GetConsumerLag(consumerGroup, topic);
+    
+    Console.WriteLine($"Total Lag: {lagInfo.TotalLag} messages");
+    Console.WriteLine($"Partitions: {lagInfo.PartitionCount}");
+    Console.WriteLine($"Consumers: {lagInfo.ConsumerCount}");
+    
+    // Check 1: Not enough consumers?
+    if (lagInfo.ConsumerCount < lagInfo.PartitionCount)
+    {
+        Console.WriteLine($"⚠️  Only {lagInfo.ConsumerCount} consumers " +
+            $"for {lagInfo.PartitionCount} partitions");
+        Console.WriteLine("   Recommendation: Add more consumers");
+    }
+    
+    // Check 2: Slow processing?
+    var avgProcessingTime = await GetAvgProcessingTime(consumerGroup);
+    if (avgProcessingTime > TimeSpan.FromSeconds(1))
+    {
+        Console.WriteLine($"⚠️  Slow processing: {avgProcessingTime.TotalSeconds:F2}s average");
+        Console.WriteLine("   Recommendations:");
+        Console.WriteLine("   - Optimize processing logic");
+        Console.WriteLine("   - Add parallelism");
+        Console.WriteLine("   - Check external dependencies");
+    }
+    
+    // Check 3: Frequent rebalancing?
+    var rebalanceCount = await GetRebalanceCount(consumerGroup, TimeSpan.FromHours(1));
+    if (rebalanceCount > 5)
+    {
+        Console.WriteLine($"⚠️  Frequent rebalancing: {rebalanceCount} times in last hour");
+        Console.WriteLine("   Check:");
+        Console.WriteLine("   - session.timeout.ms");
+        Console.WriteLine("   - max.poll.interval.ms");
+        Console.WriteLine("   - Consumer stability");
+    }
+    
+    // Check 4: Production rate spike?
+    var productionRate = await GetProductionRate(topic, TimeSpan.FromMinutes(5));
+    var consumptionRate = await GetConsumptionRate(
+        consumerGroup, topic, TimeSpan.FromMinutes(5));
+    
+    if (productionRate > consumptionRate * 1.5)
+    {
+        Console.WriteLine($"⚠️  Production outpacing consumption");
+        Console.WriteLine($"   Production: {productionRate:F0} msgs/sec");
+        Console.WriteLine($"   Consumption: {consumptionRate:F0} msgs/sec");
+        Console.WriteLine("   Recommendation: Scale consumers");
+    }
+}
+````
+
+## Alert Rules with Prometheus
 
 **alerts.yml:**
-```yaml
+````yaml
 groups:
   - name: consumer_lag
     interval: 30s
@@ -260,18 +468,6 @@ groups:
           summary: "High error rate in event processing"
           description: "Error rate is {{ $value }} errors/sec for {{ $labels.consumer_group }}"
   
-  - name: saga_failures
-    interval: 30s
-    rules:
-      - alert: SagaFailureSpike
-        expr: rate(saga_failures_total[5m]) > 10
-        for: 3m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Spike in saga failures"
-          description: "{{ $labels.saga_type }} failing at {{ $value }}/sec"
-  
   - name: kafka_health
     interval: 30s
     rules:
@@ -283,598 +479,249 @@ groups:
         annotations:
           summary: "Under-replicated partitions detected"
           description: "{{ $value }} partitions are under-replicated"
-      
-      - alert: OfflinePartitions
-        expr: kafka_controller_kafkacontroller_offlinepartitionscount > 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Offline partitions detected"
-          description: "{{ $value }} partitions are offline"
-```
-
-### Grafana Dashboards
-
-**Key Dashboard Panels:**
-
-1. **Consumer Lag Over Time**
-```promql
-consumer_lag{consumer_group="order-processor"}
-```
-
-2. **Event Processing Rate**
-```promql
-rate(events_consumed_total[5m])
-```
-
-3. **Error Rate**
-```promql
-rate(processing_errors_total[5m]) / rate(events_consumed_total[5m])
-```
-
-4. **P95 Processing Latency**
-```promql
-histogram_quantile(0.95, rate(event_processing_duration_seconds_bucket[5m]))
-```
-
-5. **Kafka Throughput**
-```promql
-rate(kafka_server_brokertopicmetrics_bytesinpersec[5m])
-```
-
-## Distributed Tracing
-
-### OpenTelemetry Setup
-
-```python
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.jaeger.thrift import JaegerExporter
-from opentelemetry.instrumentation.kafka import KafkaInstrumentor
-
-# Initialize tracer
-trace.set_tracer_provider(TracerProvider())
-tracer = trace.get_tracer(__name__)
-
-# Jaeger exporter
-jaeger_exporter = JaegerExporter(
-    agent_host_name="localhost",
-    agent_port=6831,
-)
-
-trace.get_tracer_provider().add_span_processor(
-    BatchSpanProcessor(jaeger_exporter)
-)
-
-# Auto-instrument Kafka
-KafkaInstrumentor().instrument()
-
-# Producer with tracing
-def produce_order_event(order):
-    with tracer.start_as_current_span("produce_order_event") as span:
-        span.set_attribute("order.id", order.order_id)
-        span.set_attribute("order.amount", order.total_amount)
-        span.set_attribute("order.customer_id", order.customer_id)
-        
-        # Add correlation ID to event
-        correlation_id = span.get_span_context().trace_id
-        
-        event = {
-            'event_id': str(uuid.uuid4()),
-            'correlation_id': str(correlation_id),
-            'order_id': order.order_id,
-            # ... rest of event
-        }
-        
-        producer.send('orders', value=event)
-        span.add_event("Event published to Kafka")
-
-# Consumer with tracing
-def consume_events():
-    for message in consumer:
-        event = message.value
-        correlation_id = event.get('correlation_id')
-        
-        # Continue trace from correlation ID
-        with tracer.start_as_current_span(
-            "process_order_event",
-            links=[trace.Link(trace.SpanContext(
-                trace_id=int(correlation_id),
-                span_id=0,
-                is_remote=True,
-                trace_flags=trace.TraceFlags(0x01)
-            ))]
-        ) as span:
-            span.set_attribute("event.type", event['event_type'])
-            span.set_attribute("order.id", event['order_id'])
-            
-            try:
-                process_order(event)
-                span.set_status(trace.Status(trace.StatusCode.OK))
-            except Exception as e:
-                span.set_status(trace.Status(
-                    trace.StatusCode.ERROR,
-                    str(e)
-                ))
-                span.record_exception(e)
-                raise
-```
-
-### Correlation IDs
-
-```python
-import uuid
-from contextvars import ContextVar
-
-# Thread-safe correlation ID storage
-correlation_id_ctx = ContextVar('correlation_id', default=None)
-
-class CorrelationMiddleware:
-    """Flask middleware for correlation IDs"""
-    
-    def __init__(self, app):
-        self.app = app
-        app.before_request(self.before_request)
-        app.after_request(self.after_request)
-    
-    def before_request(self):
-        # Get correlation ID from header or generate new one
-        correlation_id = request.headers.get('X-Correlation-ID', str(uuid.uuid4()))
-        correlation_id_ctx.set(correlation_id)
-    
-    def after_request(self, response):
-        # Add correlation ID to response
-        correlation_id = correlation_id_ctx.get()
-        response.headers['X-Correlation-ID'] = correlation_id
-        return response
-
-# Structured logging with correlation ID
-import logging
-import json
-
-class CorrelationFormatter(logging.Formatter):
-    def format(self, record):
-        correlation_id = correlation_id_ctx.get()
-        
-        log_data = {
-            'timestamp': self.formatTime(record),
-            'level': record.levelname,
-            'logger': record.name,
-            'message': record.getMessage(),
-            'correlation_id': correlation_id
-        }
-        
-        if record.exc_info:
-            log_data['exception'] = self.formatException(record.exc_info)
-        
-        return json.dumps(log_data)
-
-# Use in producer
-def produce_event(event_data):
-    correlation_id = correlation_id_ctx.get() or str(uuid.uuid4())
-    
-    event = {
-        'correlation_id': correlation_id,
-        'event_id': str(uuid.uuid4()),
-        **event_data
-    }
-    
-    logger.info(f"Publishing event", extra={
-        'event_type': event['event_type'],
-        'event_id': event['event_id']
-    })
-    
-    producer.send('orders', value=event)
-```
-
-## Debugging Distributed Systems
-
-### Common Issues and Solutions
-
-**Issue 1: Event Lost**
-
-```mermaid
-graph TD
-    A[Event Lost?] --> B{Check Producer Logs}
-    B -->|No send| C[Producer never sent]
-    B -->|Sent| D{Check Kafka Topic}
-    
-    D -->|Not in topic| E[Check ACK settings<br/>Check broker logs]
-    D -->|In topic| F{Check Consumer}
-    
-    F -->|Not consuming| G[Check consumer<br/>subscription/offset]
-    F -->|Consuming| H{Check Processing}
-    
-    H -->|Not processing| I[Check consumer logs<br/>for errors]
-    
-    style C fill:#ff7675
-    style E fill:#fdcb6e
-    style I fill:#fdcb6e
-```
-
-**Debug script:**
-```python
-def debug_lost_event(event_id):
-    """Debug where an event went"""
-    
-    print(f"🔍 Debugging event: {event_id}")
-    
-    # 1. Check producer logs
-    producer_logs = search_logs('order-service', event_id)
-    if not producer_logs:
-        print("❌ Event never produced")
-        return
-    print("✅ Event was produced")
-    
-    # 2. Check Kafka topic
-    found_in_kafka = search_kafka_topic('orders', event_id)
-    if not found_in_kafka:
-        print("❌ Event not in Kafka - check producer ACK settings")
-        print("   Broker logs:", get_broker_logs(time_range=producer_logs['timestamp']))
-        return
-    print(f"✅ Event in Kafka at offset {found_in_kafka['offset']}")
-    
-    # 3. Check consumer offset
-    consumer_offset = get_consumer_offset('email-service', 'orders', found_in_kafka['partition'])
-    if consumer_offset < found_in_kafka['offset']:
-        print(f"⚠️  Consumer hasn't reached this offset yet (lag: {found_in_kafka['offset'] - consumer_offset})")
-        return
-    print("✅ Consumer should have processed this event")
-    
-    # 4. Check consumer logs
-    consumer_logs = search_logs('email-service', event_id)
-    if not consumer_logs:
-        print("❌ Consumer didn't process event - check for errors")
-        print("   Recent errors:", get_consumer_errors('email-service'))
-        return
-    print("✅ Consumer processed event")
-```
-
-**Issue 2: High Consumer Lag**
-
-```python
-def diagnose_consumer_lag(consumer_group, topic):
-    """Diagnose why consumer is lagging"""
-    
-    lag_info = get_consumer_lag(consumer_group, topic)
-    
-    print(f"📊 Consumer Lag Analysis for {consumer_group}")
-    print(f"Total Lag: {lag_info['total_lag']} messages")
-    print(f"Partitions: {lag_info['partition_count']}")
-    print(f"Consumers: {lag_info['consumer_count']}")
-    
-    # Check 1: Not enough consumers?
-    if lag_info['consumer_count'] < lag_info['partition_count']:
-        print(f"⚠️  Only {lag_info['consumer_count']} consumers for {lag_info['partition_count']} partitions")
-        print("   Recommendation: Add more consumers")
-    
-    # Check 2: Slow processing?
-    processing_time = get_avg_processing_time(consumer_group)
-    if processing_time > 1.0:  # More than 1 second
-        print(f"⚠️  Slow processing: {processing_time:.2f}s average")
-        print("   Recommendations:")
-        print("   - Optimize processing logic")
-        print("   - Add parallelism")
-        print("   - Check external dependencies")
-    
-    # Check 3: Frequent rebalancing?
-    rebalance_count = get_rebalance_count(consumer_group, hours=1)
-    if rebalance_count > 5:
-        print(f"⚠️  Frequent rebalancing: {rebalance_count} times in last hour")
-        print("   Check:")
-        print("   - session.timeout.ms")
-        print("   - max.poll.interval.ms")
-        print("   - Consumer stability")
-    
-    # Check 4: Production rate spike?
-    production_rate = get_production_rate(topic, minutes=5)
-    consumption_rate = get_consumption_rate(consumer_group, topic, minutes=5)
-    
-    if production_rate > consumption_rate * 1.5:
-        print(f"⚠️  Production outpacing consumption")
-        print(f"   Production: {production_rate:.0f} msgs/sec")
-        print(f"   Consumption: {consumption_rate:.0f} msgs/sec")
-        print("   Recommendation: Scale consumers")
-```
-
-**Issue 3: Out-of-Order Events**
-
-```python
-def detect_ordering_issues(topic, partition, count=100):
-    """Detect out-of-order events"""
-    
-    messages = consume_recent_messages(topic, partition, count)
-    
-    # Check ordering by timestamp
-    timestamps = [msg.value['timestamp'] for msg in messages]
-    
-    out_of_order = []
-    for i in range(1, len(timestamps)):
-        if timestamps[i] < timestamps[i-1]:
-            out_of_order.append({
-                'offset': messages[i].offset,
-                'timestamp': timestamps[i],
-                'previous_timestamp': timestamps[i-1]
-            })
-    
-    if out_of_order:
-        print(f"❌ Found {len(out_of_order)} out-of-order events")
-        print("Causes:")
-        print("- Events sent to different partitions")
-        print("- Clock skew between producers")
-        print("- Events sent without keys (round-robin distribution)")
-        print("\nFix:")
-        print("- Use consistent keys for related events")
-        print("- Ensure related events go to same partition")
-    else:
-        print("✅ No ordering issues detected")
-```
+````
 
 ## Testing Strategies
 
 ### Unit Testing
+````csharp
+[Fact]
+public async Task OrderCommandHandler_PlacesOrder_PublishesEvent()
+{
+    // Arrange
+    var mockRepository = new Mock<IOrderRepository>();
+    var mockEventBus = new Mock<IEventBus>();
+    var handler = new OrderCommandHandler(mockRepository.Object, mockEventBus.Object);
+    
+    var command = new PlaceOrderCommand
+    {
+        CustomerId = "CUST-123",
+        Items = new List<OrderItem>
+        {
+            new() { ProductId = "PROD-001", Quantity = 2, Price = 29.99m }
+        }
+    };
+    
+    // Act
+    var orderId = await handler.HandlePlaceOrder(command);
+    
+    // Assert
+    Assert.NotNull(orderId);
+    mockRepository.Verify(r => r.SaveAsync(It.IsAny<Order>()), Times.Once);
+    mockEventBus.Verify(e => e.PublishAsync(
+        It.Is<OrderPlacedEvent>(evt => evt.OrderId == orderId)), 
+        Times.Once);
+}
+````
 
-```python
-import pytest
-from unittest.mock import Mock, patch
+### Integration Testing with Testcontainers
+````csharp
+public class KafkaIntegrationTests : IAsyncLifetime
+{
+    private KafkaContainer _kafka;
+    private IProducer<string, string> _producer;
+    private IConsumer<string, string> _consumer;
 
-def test_order_command_handler():
-    # Arrange
-    mock_repository = Mock()
-    mock_event_bus = Mock()
-    handler = OrderCommandHandler(mock_repository, mock_event_bus)
-    
-    command = PlaceOrderCommand(
-        customer_id='CUST-123',
-        items=[{'product_id': 'PROD-001', 'quantity': 2, 'price': 29.99}],
-        shipping_address={'street': '123 Main St'}
-    )
-    
-    # Act
-    order_id = handler.handle_place_order(command)
-    
-    # Assert
-    assert order_id is not None
-    mock_repository.save.assert_called_once()
-    mock_event_bus.publish.assert_called()
-    
-    # Verify event content
-    published_event = mock_event_bus.publish.call_args[0][1]
-    assert published_event.order_id == order_id
-    assert published_event.customer_id == 'CUST-123'
-
-def test_event_projection():
-    # Arrange
-    projection = OrderListProjection()
-    event = {
-        'event_type': 'OrderPlaced',
-        'order_id': 'ORD-123',
-        'customer_id': 'CUST-456',
-        'total_amount': 99.99
+    public async Task InitializeAsync()
+    {
+        _kafka = new KafkaBuilder().Build();
+        await _kafka.StartAsync();
+        
+        var config = new ProducerConfig
+        {
+            BootstrapServers = _kafka.GetBootstrapAddress()
+        };
+        _producer = new ProducerBuilder<string, string>(config).Build();
+        
+        var consumerConfig = new ConsumerConfig
+        {
+            BootstrapServers = _kafka.GetBootstrapAddress(),
+            GroupId = "test-group",
+            AutoOffsetReset = AutoOffsetReset.Earliest
+        };
+        _consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
     }
-    
-    # Act
-    projection.handle_order_placed(event)
-    
-    # Assert
-    order = projection.db.find_one({'order_id': 'ORD-123'})
-    assert order is not None
-    assert order['customer_id'] == 'CUST-456'
-    assert order['total_amount'] == 99.99
-```
 
-### Integration Testing
+    [Fact]
+    public async Task EndToEnd_ProduceAndConsume_Success()
+    {
+        // Arrange
+        const string topic = "test-topic";
+        _consumer.Subscribe(topic);
+        
+        var testEvent = new { OrderId = "ORD-123", Amount = 99.99 };
+        var message = new Message<string, string>
+        {
+            Key = testEvent.OrderId,
+            Value = JsonSerializer.Serialize(testEvent)
+        };
+        
+        // Act
+        await _producer.ProduceAsync(topic, message);
+        _producer.Flush(TimeSpan.FromSeconds(10));
+        
+        var result = _consumer.Consume(TimeSpan.FromSeconds(10));
+        
+        // Assert
+        Assert.NotNull(result);
+        var receivedEvent = JsonSerializer.Deserialize<dynamic>(result.Message.Value);
+        Assert.Equal("ORD-123", receivedEvent.OrderId.ToString());
+    }
 
-```python
-from testcontainers.kafka import KafkaContainer
-import pytest
+    public async Task DisposeAsync()
+    {
+        _producer?.Dispose();
+        _consumer?.Dispose();
+        await _kafka.DisposeAsync();
+    }
+}
+````
 
-@pytest.fixture(scope='module')
-def kafka_container():
-    with KafkaContainer() as kafka:
-        yield kafka
+### Load Testing
+````csharp
+public class LoadTestResult
+{
+    public TimeSpan TotalDuration { get; set; }
+    public int TotalRequests { get; set; }
+    public int SuccessfulRequests { get; set; }
+    public int FailedRequests { get; set; }
+    public double AverageDuration { get; set; }
+    public double P95Duration { get; set; }
+    public double P99Duration { get; set; }
+}
 
-def test_end_to_end_flow(kafka_container):
-    # Setup
-    bootstrap_servers = kafka_container.get_bootstrap_server()
-    
-    producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
-    consumer = KafkaConsumer(
-        'test-topic',
-        bootstrap_servers=bootstrap_servers,
-        auto_offset_reset='earliest',
-        consumer_timeout_ms=5000
-    )
-    
-    # Produce event
-    event = {'order_id': 'ORD-123', 'amount': 99.99}
-    producer.send('test-topic', value=json.dumps(event).encode())
-    producer.flush()
-    
-    # Consume and verify
-    messages = list(consumer)
-    assert len(messages) == 1
-    
-    received_event = json.loads(messages[0].value.decode())
-    assert received_event['order_id'] == 'ORD-123'
-```
+public async Task<LoadTestResult> RunLoadTest(
+    int requestCount, 
+    bool concurrent)
+{
+    var stopwatch = Stopwatch.StartNew();
+    var durations = new List<double>();
+    var successful = 0;
+    var failed = 0;
 
-### Contract Testing
-
-```python
-from pact import Consumer, Provider, Like
-
-def test_order_placed_event_contract():
-    """Define expected event structure"""
-    pact = Consumer('email-service').has_pact_with(Provider('order-service'))
-    
-    expected_event = {
-        'event_type': 'OrderPlaced',
-        'event_id': Like('evt_123'),
-        'order_id': Like('ORD-123'),
-        'customer_id': Like('CUST-456'),
-        'customer_email': Like('customer@example.com'),
-        'total_amount': Like(99.99),
-        'items': [
+    if (concurrent)
+    {
+        var tasks = Enumerable.Range(0, requestCount)
+            .Select(async i =>
             {
-                'product_id': Like('PROD-001'),
-                'quantity': Like(2),
-                'price': Like(29.99)
-            }
-        ]
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    await TriggerEvent($"EVENT-{i}");
+                    Interlocked.Increment(ref successful);
+                }
+                catch
+                {
+                    Interlocked.Increment(ref failed);
+                }
+                sw.Stop();
+                lock (durations)
+                {
+                    durations.Add(sw.Elapsed.TotalMilliseconds);
+                }
+            });
+        
+        await Task.WhenAll(tasks);
     }
-    
-    # Verify producer creates compatible events
-    # Verify consumer can handle events
-```
+    else
+    {
+        for (int i = 0; i < requestCount; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                await TriggerEvent($"EVENT-{i}");
+                successful++;
+            }
+            catch
+            {
+                failed++;
+            }
+            sw.Stop();
+            durations.Add(sw.Elapsed.TotalMilliseconds);
+        }
+    }
 
-### Chaos Testing
+    stopwatch.Stop();
+    durations.Sort();
 
-```python
-import random
-import time
-from chaos import kill_random_broker, inject_network_delay
-
-def test_resilience_to_broker_failure():
-    """Test system handles broker failures"""
-    
-    # Start normal operation
-    start_producing_events()
-    start_consuming_events()
-    
-    # Kill random broker
-    killed_broker = kill_random_broker()
-    print(f"Killed broker: {killed_broker}")
-    
-    # System should continue with remaining brokers
-    time.sleep(30)
-    
-    # Verify events still flowing
-    assert get_production_rate() > 0
-    assert get_consumption_rate() > 0
-    
-    # Verify no data loss
-    assert get_consumer_lag() < 1000
-
-def test_slow_consumer():
-    """Test system handles slow consumers"""
-    
-    # Inject processing delay
-    with inject_processing_delay(seconds=5):
-        produce_events(count=1000)
-        
-        # Consumer lag should increase
-        time.sleep(10)
-        assert get_consumer_lag() > 500
-        
-        # Alert should trigger
-        assert check_alert_fired('HighConsumerLag')
-    
-    # After delay removed, should catch up
-    time.sleep(60)
-    assert get_consumer_lag() < 100
-```
+    return new LoadTestResult
+    {
+        TotalDuration = stopwatch.Elapsed,
+        TotalRequests = requestCount,
+        SuccessfulRequests = successful,
+        FailedRequests = failed,
+        AverageDuration = durations.Average(),
+        P95Duration = durations[(int)(durations.Count * 0.95)],
+        P99Duration = durations[(int)(durations.Count * 0.99)]
+    };
+}
+````
 
 ## Deployment Strategies
 
 ### Blue-Green Deployment
-
-```mermaid
-graph TB
-    subgraph "Blue (Current)"
-        B1[Consumer v1<br/>Group: processor-blue]
-        B2[Consumer v1<br/>Group: processor-blue]
-    end
-    
-    subgraph "Green (New)"
-        G1[Consumer v2<br/>Group: processor-green]
-        G2[Consumer v2<br/>Group: processor-green]
-    end
-    
-    K[Kafka Topic]
-    
-    K --> B1
-    K --> B2
-    K --> G1
-    K --> G2
-    
-    Note[Both consume same events<br/>Switch traffic to Green when ready]
-    
-    style B1 fill:#74b9ff
-    style G1 fill:#00b894
-```
+````yaml
+# Deploy new version (green) alongside old version (blue)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-processor-v2
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: order-processor
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: order-processor
+        version: v2
+    spec:
+      containers:
+      - name: order-processor
+        image: order-processor:v2
+        env:
+        - name: KAFKA_GROUP_ID
+          value: "order-processor-green"
+````
 
 **Process:**
-```bash
-# 1. Deploy new version (green)
-kubectl apply -f consumer-v2-deployment.yml
-
-# 2. Monitor green deployment
-kubectl logs -f deployment/consumer-v2
-
-# 3. Verify processing
-curl http://consumer-v2/health
-curl http://consumer-v2/metrics
-
-# 4. Compare metrics blue vs green
-# If green looks good...
-
-# 5. Stop blue deployment
-kubectl scale deployment/consumer-v1 --replicas=0
-
-# 6. Monitor for issues
-# If issues: kubectl scale deployment/consumer-v1 --replicas=3
-```
+1. Deploy new version with different consumer group
+2. Both versions consume same events
+3. Monitor green deployment
+4. If healthy, scale down blue
+5. If issues, rollback to blue instantly
 
 ### Canary Deployment
+````csharp
+// Route percentage of traffic to new version
+public class CanaryRouter
+{
+    private readonly int _canaryPercentage;
 
-```python
-# Route small percentage to new version
-class CanaryRouter:
-    def __init__(self, canary_percentage=10):
-        self.canary_percentage = canary_percentage
-    
-    def get_consumer_group(self, message):
-        """Route message to canary or stable group"""
-        
-        # Hash message key for consistent routing
-        key_hash = hash(message.key) % 100
-        
-        if key_hash < self.canary_percentage:
-            return 'processor-canary'
-        else:
-            return 'processor-stable'
+    public CanaryRouter(int canaryPercentage)
+    {
+        _canaryPercentage = canaryPercentage;
+    }
 
-# Gradually increase canary percentage
-# 5% -> 10% -> 25% -> 50% -> 100%
-```
+    public string GetConsumerGroup(string messageKey)
+    {
+        var hash = Math.Abs(messageKey.GetHashCode()) % 100;
+        return hash < _canaryPercentage 
+            ? "processor-canary" 
+            : "processor-stable";
+    }
+}
 
-### Schema Evolution Deployment
+// Gradually increase: 5% → 10% → 25% → 50% → 100%
+````
 
-```bash
-# Step 1: Deploy consumers that handle both old and new schemas
-kubectl apply -f consumer-v2-backward-compatible.yml
-
-# Step 2: Wait for all consumers to update
-kubectl rollout status deployment/consumer-v2
-
-# Step 3: Deploy producers with new schema
-kubectl apply -f producer-v2.yml
-
-# Step 4: Monitor for schema errors
-kubectl logs -f deployment/consumer-v2 | grep "schema error"
-
-# Step 5: Remove old schema handling (later)
-# After confirming all events use new schema
-```
-
-## Incident Response
+## Incident Response Runbooks
 
 ### Runbook: High Consumer Lag
-
-```markdown
+````markdown
 # Runbook: High Consumer Lag Alert
 
 ## Symptoms
@@ -890,27 +737,20 @@ kubectl logs -f deployment/consumer-v2 | grep "schema error"
 ## Investigation Steps
 
 1. Check current lag:
-   ```bash
-   kafka-consumer-groups --bootstrap-server localhost:9092 \
-     --group order-processor --describe
-   ```
+```bash
+kafka-consumer-groups --bootstrap-server localhost:9092 \
+  --group order-processor --describe
+```
 
 2. Check consumer health:
-   ```bash
-   kubectl get pods -l app=order-processor
-   kubectl logs -l app=order-processor --tail=100
-   ```
+```bash
+kubectl get pods -l app=order-processor
+kubectl logs -l app=order-processor --tail=100
+```
 
-3. Check processing time:
-   ```promql
-   rate(event_processing_duration_seconds_sum[5m]) / 
-   rate(event_processing_duration_seconds_count[5m])
-   ```
+3. Check processing time in Grafana
 
-4. Check rebalancing:
-   ```promql
-   rate(consumer_rebalances_total[5m])
-   ```
+4. Check rebalancing frequency
 
 ## Resolution
 
@@ -920,7 +760,7 @@ kubectl scale deployment/order-processor --replicas=6
 ```
 
 ### If: Slow processing
-- Check external dependencies (database, APIs)
+- Check external dependencies
 - Look for slow queries
 - Consider adding caching
 
@@ -931,75 +771,13 @@ kubectl scale deployment/order-processor --replicas=6
 
 ### If: Production spike
 - Temporary: Pause non-critical consumers
-- Long-term: Scale consumers permanently
+- Long-term: Implement auto-scaling
 
 ## Prevention
 - Set up auto-scaling based on lag
 - Monitor processing time trends
-- Load test regularly
-```
-
-### Runbook: Event Loss
-
-```markdown
-# Runbook: Suspected Event Loss
-
-## Symptoms
-- Expected event never processed
-- Missing data in read models
-- Customer reports missing notification
-
-## Investigation
-
-1. Get event details from user:
-   - Order ID / Entity ID
-   - Expected event type
-   - Timestamp
-
-2. Check producer logs:
-   ```bash
-   kubectl logs -l app=order-service --since=2h | grep "ORDER-123"
-   ```
-
-3. Search Kafka topic:
-   ```bash
-   kafka-console-consumer --bootstrap-server localhost:9092 \
-     --topic orders --from-beginning | grep "ORDER-123"
-   ```
-
-4. Check consumer offset:
-   ```bash
-   kafka-consumer-groups --bootstrap-server localhost:9092 \
-     --group email-service --describe
-   ```
-
-5. Check consumer logs:
-   ```bash
-   kubectl logs -l app=email-service --since=2h | grep "ORDER-123"
-   ```
-
-## Resolution
-
-### If: Event never produced
-- Check producer errors
-- Verify outbox table
-- Check database transaction logs
-
-### If: Event in Kafka but not consumed
-- Check consumer offset
-- Look for processing errors
-- Check dead letter queue
-
-### If: Event processed but failed
-- Retry from DLQ
-- Manual intervention if needed
-
-## Prevention
-- Enable idempotent producer
-- Use outbox pattern
-- Monitor producer success rate
-- Alert on processing errors
-```
+- Regular load testing
+````
 
 ## Best Practices Checklist
 
@@ -1043,78 +821,587 @@ kubectl scale deployment/order-processor --replicas=6
 - ✅ Regular security audits
 - ✅ Rotate credentials
 
-## Capacity Planning
+---
 
-```python
-def calculate_capacity_requirements(
-    messages_per_day,
-    avg_message_size_kb,
-    retention_days,
-    replication_factor=3
-):
-    """Calculate Kafka cluster capacity needs"""
-    
-    # Daily throughput
-    daily_data_gb = (messages_per_day * avg_message_size_kb) / (1024 * 1024)
-    
-    # Storage needed
-    storage_gb = daily_data_gb * retention_days * replication_factor
-    
-    # Add 20% buffer
-    storage_gb *= 1.2
-    
-    # Peak throughput (assume 10x average for peak hour)
-    peak_msgs_per_sec = (messages_per_day / 86400) * 10
-    peak_mb_per_sec = (peak_msgs_per_sec * avg_message_size_kb) / 1024
-    
-    # Partitions needed (assume 10MB/sec per partition)
-    partitions_needed = int(peak_mb_per_sec / 10) + 1
-    
-    # Brokers needed (for redundancy and load distribution)
-    brokers_needed = max(replication_factor, partitions_needed // 3)
-    
-    print(f"📊 Capacity Requirements")
-    print(f"Daily Data: {daily_data_gb:.2f} GB")
-    print(f"Storage Needed: {storage_gb:.2f} GB")
-    print(f"Peak Throughput: {peak_mb_per_sec:.2f} MB/sec")
-    print(f"Recommended Partitions: {partitions_needed}")
-    print(f"Recommended Brokers: {brokers_needed}")
-    
-    return {
-        'storage_gb': storage_gb,
-        'partitions': partitions_needed,
-        'brokers': brokers_needed
+# Part B: Building a Complete Working Demo
+
+Now that we understand the theory, let's build a **production-ready demonstration** that implements everything we've learned. This demo runs entirely on your laptop and includes:
+
+- **3 C# Microservices** communicating via Kafka
+- **Full Observability Stack** (Prometheus, Grafana, Jaeger)
+- **Interactive React UI** to trigger events
+- **Load Testing** to simulate production scenarios
+- **Complete Docker Compose** setup
+
+## What We'll Build: Event-Driven NAV Calculator
+
+A realistic financial services scenario: calculating Net Asset Value (NAV) for investment funds.
+````
+┌─────────────┐      pricing-updates       ┌──────────────┐
+│   Pricing   ├───────────────────────────>│     NAV      │
+│   Service   │        (Kafka)             │  Calculator  │
+└─────────────┘                            └──────┬───────┘
+                                                  │
+                                                  │ nav-calculated
+                                                  ↓
+                                           ┌──────────────┐
+                                           │ Notification │
+                                           │   Service    │
+                                           └──────────────┘
+````
+
+**Flow:**
+1. User triggers pricing for a fund
+2. Pricing Service publishes `PricingUpdate` event
+3. NAV Calculator (2 instances) consume and calculate NAV
+4. NAV Calculator publishes `NAVCalculated` event
+5. Notification Service sends notifications
+
+**All observable via:**
+- Prometheus metrics
+- Grafana dashboards
+- Jaeger distributed traces
+- Structured logs with correlation IDs
+
+## Project Structure
+````
+event-driven-nav-poc/
+├── src/
+│   ├── Shared/
+│   │   ├── Shared.Observability/       # Reusable metrics, tracing
+│   │   └── Shared.Kafka/               # Kafka wrappers with observability
+│   ├── Services/
+│   │   ├── PricingService/             # Triggers pricing updates
+│   │   ├── NavCalculator/              # Calculates NAV (2 instances)
+│   │   └── NotificationService/        # Sends notifications
+│   └── Tools/
+│       └── LoadTester/                 # Performance testing tool
+├── demo-ui/                            # React UI
+├── monitoring/                         # Prometheus + Grafana config
+├── docker-compose.yml                  # Complete stack
+└── README.md
+````
+
+## Implementation Highlights
+
+### 1. Reusable Observability Library
+````csharp
+// Shared.Observability/ServiceMetrics.cs
+public class ServiceMetrics
+{
+    private readonly string _serviceName;
+    private readonly Counter _eventsProcessed;
+    private readonly Histogram _processingDuration;
+
+    public ServiceMetrics(string serviceName)
+    {
+        _serviceName = serviceName;
+        
+        _eventsProcessed = Metrics.CreateCounter(
+            "events_processed_total",
+            "Total events processed",
+            new CounterConfiguration
+            {
+                LabelNames = new[] { "service", "event_type", "status" }
+            });
+
+        _processingDuration = Metrics.CreateHistogram(
+            "event_processing_duration_seconds",
+            "Time to process event",
+            new HistogramConfiguration
+            {
+                LabelNames = new[] { "service", "event_type" },
+                Buckets = Histogram.ExponentialBuckets(0.001, 2, 10)
+            });
     }
 
-# Example
-calculate_capacity_requirements(
-    messages_per_day=10_000_000,  # 10M messages/day
-    avg_message_size_kb=5,         # 5KB per message
-    retention_days=7,              # 1 week retention
-    replication_factor=3
-)
-```
+    public IDisposable TrackEventProcessing(string eventType)
+    {
+        return new EventProcessingTracker(this, eventType);
+    }
 
-## Key Takeaways
+    public void RecordEventProcessed(string eventType, string status)
+    {
+        _eventsProcessed
+            .WithLabels(_serviceName, eventType, status)
+            .Inc();
+    }
 
-✅ **Monitor Everything** - Metrics, logs, traces  
-✅ **Debug Systematically** - Follow the data flow  
-✅ **Test Comprehensively** - Unit, integration, chaos  
-✅ **Deploy Safely** - Blue-green, canary, gradual rollout  
-✅ **Respond Quickly** - Clear runbooks, practiced procedures  
-✅ **Plan Capacity** - Know your limits before hitting them  
+    private class EventProcessingTracker : IDisposable
+    {
+        private readonly ServiceMetrics _metrics;
+        private readonly string _eventType;
+        private readonly Stopwatch _stopwatch;
+
+        public EventProcessingTracker(ServiceMetrics metrics, string eventType)
+        {
+            _metrics = metrics;
+            _eventType = eventType;
+            _stopwatch = Stopwatch.StartNew();
+        }
+
+        public void Dispose()
+        {
+            _stopwatch.Stop();
+            _metrics._processingDuration
+                .WithLabels(_metrics._serviceName, _eventType)
+                .Observe(_stopwatch.Elapsed.TotalSeconds);
+        }
+    }
+}
+````
+
+### 2. Observable Kafka Wrapper
+````csharp
+// Shared.Kafka/ObservableKafkaProducer.cs
+public class ObservableKafkaProducer<TKey, TValue> : IDisposable
+{
+    private readonly IProducer<TKey, TValue> _producer;
+    private readonly ServiceMetrics _metrics;
+    private readonly ActivitySource _activitySource;
+
+    public async Task<DeliveryResult<TKey, TValue>> ProduceAsync(
+        string topic,
+        Message<TKey, TValue> message,
+        string? correlationId = null)
+    {
+        using var activity = _activitySource.StartActivity(
+            "produce_event",
+            ActivityKind.Producer);
+
+        activity?.SetTag("messaging.system", "kafka");
+        activity?.SetTag("messaging.destination", topic);
+        activity?.SetTag("correlation_id", correlationId ?? Guid.NewGuid().ToString());
+
+        try
+        {
+            // Add correlation ID and trace context to headers
+            message.Headers ??= new Headers();
+            
+            if (correlationId != null)
+            {
+                message.Headers.Add("correlation_id", 
+                    Encoding.UTF8.GetBytes(correlationId));
+            }
+
+            if (activity != null)
+            {
+                message.Headers.Add("traceparent",
+                    Encoding.UTF8.GetBytes(activity.Id ?? ""));
+            }
+
+            var result = await _producer.ProduceAsync(topic, message);
+            
+            activity?.SetTag("messaging.kafka.partition", result.Partition.Value);
+            activity?.SetTag("messaging.kafka.offset", result.Offset.Value);
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
+    }
+
+    public void Dispose() => _producer?.Dispose();
+}
+````
+
+### 3. NAV Calculator Service (Consumer)
+````csharp
+// Services/NavCalculator/NavCalculatorConsumer.cs
+public class NavCalculatorConsumer : BackgroundService
+{
+    private readonly ILogger<NavCalculatorConsumer> _logger;
+    private readonly ServiceMetrics _metrics;
+    private readonly string _instanceId;
+    private ObservableKafkaConsumer<string, string> _consumer;
+    private ObservableKafkaProducer<string, string> _producer;
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _consumer.Subscribe("pricing-updates");
+
+        _logger.LogInformation(
+            "🎧 [{InstanceId}] Starting to consume pricing updates...", 
+            _instanceId);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await _consumer.ConsumeAsync(async (result) =>
+            {
+                var pricingEvent = JsonSerializer
+                    .Deserialize<PricingUpdateEvent>(result.Message.Value);
+
+                if (pricingEvent != null)
+                {
+                    await ProcessPricingUpdate(pricingEvent);
+                }
+            }, stoppingToken);
+        }
+    }
+
+    private async Task ProcessPricingUpdate(PricingUpdateEvent pricingEvent)
+    {
+        using var activity = TracingSetup.ActivitySource
+            .StartActivity("calculate_nav");
+        
+        activity?.SetTag("fund.id", pricingEvent.FundId);
+        activity?.SetTag("correlation_id", pricingEvent.CorrelationId);
+        activity?.SetTag("instance_id", _instanceId);
+
+        // Simulate calculation (100-500ms)
+        var calculationTime = Random.Shared.Next(100, 500);
+        await Task.Delay(calculationTime);
+
+        var totalValue = pricingEvent.Prices.Sum(p => p.Price * p.Quantity);
+        var sharesOutstanding = Random.Shared.Next(100000, 1000000);
+        var navPerShare = totalValue / sharesOutstanding;
+
+        var navEvent = new NavCalculatedEvent
+        {
+            CorrelationId = pricingEvent.CorrelationId,
+            FundId = pricingEvent.FundId,
+            NavPerShare = Math.Round(navPerShare, 4),
+            TotalAssets = totalValue,
+            SharesOutstanding = sharesOutstanding,
+            CalculatedAt = DateTime.UtcNow,
+            CalculatedBy = _instanceId
+        };
+
+        await _producer.ProduceAsync(
+            "nav-calculated",
+            new Message<string, string>
+            {
+                Key = pricingEvent.FundId,
+                Value = JsonSerializer.Serialize(navEvent)
+            },
+            pricingEvent.CorrelationId);
+
+        _logger.LogInformation(
+            "✅ [{InstanceId}] Calculated NAV for {FundId}: ${Nav:F4}",
+            _instanceId, pricingEvent.FundId, navPerShare);
+    }
+}
+````
+
+### 4. Interactive React UI
+
+The UI provides:
+- **Fund selection** buttons to trigger individual calculations
+- **Month-End simulation** button to process all funds simultaneously
+- **Real-time results** display with correlation IDs
+- **Statistics panel** showing success rate, avg duration
+- **Links to observability tools** (Grafana, Jaeger, Prometheus)
+
+Key features:
+````jsx
+const triggerPricing = async (fundId, fundName) => {
+  const startTime = Date.now();
+  
+  const response = await axios.post(
+    `${API_BASE_URL}/api/pricing/trigger`,
+    { fundId, fundName }
+  );
+  
+  const duration = Date.now() - startTime;
+  
+  setResults(prev => [
+    { ...response.data, duration, status: 'success' },
+    ...prev
+  ].slice(0, 20));
+};
+
+const triggerMonthEnd = async () => {
+  // Trigger all funds in parallel (simulates month-end spike)
+  const promises = funds.map(fund => 
+    triggerPricing(fund.id, fund.name)
+  );
+  
+  await Promise.all(promises);
+};
+````
+
+### 5. Load Testing Tool
+````csharp
+// Tools/LoadTester/Program.cs
+var rootCommand = new RootCommand("Event-Driven NAV Calculator Load Tester");
+
+var fundCountOption = new Option<int>("--funds", () => 28);
+var concurrentOption = new Option<bool>("--concurrent", () => true);
+var iterationsOption = new Option<int>("--iterations", () => 1);
+
+rootCommand.SetHandler(async (fundCount, concurrent, iterations) =>
+{
+    await RunLoadTest(fundCount, concurrent, iterations);
+}, fundCountOption, concurrentOption, iterationsOption);
+
+// Pretty output with Spectre.Console
+AnsiConsole.Write(
+    new FigletText("Load Tester")
+        .LeftJustified()
+        .Color(Color.Blue));
+
+// Progress bar during test
+await AnsiConsole.Progress()
+    .Columns(new ProgressColumn[]
+    {
+        new TaskDescriptionColumn(),
+        new ProgressBarColumn(),
+        new PercentageColumn(),
+        new RemainingTimeColumn(),
+    })
+    .StartAsync(async ctx => { /* ... */ });
+
+// Results table
+var table = new Table();
+table.AddColumn("[bold]Metric[/]");
+table.AddColumn("[bold]Value[/]");
+table.AddRow("Total Duration", $"[green]{totalDuration:F2}s[/]");
+table.AddRow("Success Rate", $"{successRate:F2}%");
+table.AddRow("P95 Duration", $"{p95:F0}ms");
+AnsiConsole.Write(table);
+````
+
+### 6. Grafana Dashboard
+
+Pre-configured dashboard showing:
+- **Events processed per second** (by service)
+- **Processing duration** (P50, P95, P99)
+- **Success rate gauge**
+- **Error count**
+- **Average processing time**
+- **Load distribution** across NAV calculator instances
+
+### 7. Docker Compose - Complete Stack
+````yaml
+version: '3.8'
+
+services:
+  kafka:
+    image: apache/kafka:3.7.0
+    # KRaft mode - no ZooKeeper needed
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # ... configuration
+  
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
+  
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+  
+  pricing-service:
+    build:
+      context: .
+      dockerfile: src/Services/PricingService/Dockerfile
+  
+  nav-calculator-1:
+    build:
+      context: .
+      dockerfile: src/Services/NavCalculator/Dockerfile
+    environment:
+      - INSTANCE_ID=nav-calculator-1
+  
+  nav-calculator-2:
+    build:
+      context: .
+      dockerfile: src/Services/NavCalculator/Dockerfile
+    environment:
+      - INSTANCE_ID=nav-calculator-2
+  
+  notification-service:
+    build:
+      context: .
+      dockerfile: src/Services/NotificationService/Dockerfile
+  
+  demo-ui:
+    build:
+      context: ./demo-ui
+````
+
+## Running the Demo
+
+### Quick Start
+````bash
+# Clone repository
+git clone https://github.com/YOUR_USERNAME/event-driven-nav-poc
+cd event-driven-nav-poc
+
+# Start everything
+docker-compose up --build
+
+# Wait ~2 minutes, then open:
+# - http://localhost:3001 (Demo UI)
+# - http://localhost:3000 (Grafana - admin/admin)
+# - http://localhost:16686 (Jaeger)
+````
+
+### What to Try
+
+1. **Single Fund Calculation**
+   - Click any fund button in the UI
+   - Watch logs in terminal
+   - Check Grafana for metrics spike
+   - Search Jaeger by correlation ID
+
+2. **Month-End Spike**
+   - Click "Simulate Month-End"
+   - Watch 5 funds process simultaneously
+   - Observe load distribution across 2 NAV calculator instances
+   - Check P95 latency in Grafana
+
+3. **Load Testing**
+````bash
+   cd src/Tools/LoadTester
+   dotnet run -- --funds 28 --concurrent true --iterations 3
+````
+   
+   Output:
+````
+   ┌─────────────────┬──────────────┐
+   │ Metric          │ Value        │
+   ├─────────────────┼──────────────┤
+   │ Total Duration  │ 2.34s        │
+   │ Successful      │ 28           │
+   │ P95 Duration    │ 487ms        │
+   │ Throughput      │ 11.97 f/s    │
+   └─────────────────┴──────────────┘
+````
+
+4. **Distributed Tracing**
+   - Trigger an event from UI
+   - Copy correlation ID from result
+   - Paste into Jaeger search
+   - See complete trace across all 3 services
+
+5. **Simulate Failure**
+````bash
+   # Stop one NAV calculator instance
+   docker stop nav-calculator-2
+   
+   # Trigger events - watch other instance handle all load
+   # Check Grafana for increased load on nav-calculator-1
+   
+   # Restart
+   docker start nav-calculator-2
+````
+
+## Key Learnings from This Demo
+
+### 1. Observability is Essential
+
+Without Prometheus + Grafana + Jaeger, you're flying blind:
+- Metrics show **what** is happening
+- Logs explain **why** it happened
+- Traces reveal **where** in the flow it happened
+
+### 2. Correlation IDs Enable Debugging
+
+Following a single request through multiple services is impossible without correlation IDs. With them, you can:
+- Search logs across all services
+- Find the exact trace in Jaeger
+- Debug issues that span multiple hops
+
+### 3. Horizontal Scaling Just Works
+
+When we run 2 NAV calculator instances:
+- Kafka automatically distributes partitions
+- Load balances across instances
+- Rebalances if one dies
+
+### 4. Load Testing Reveals Bottlenecks
+
+Running 28 concurrent requests shows:
+- Where your slowest dependencies are
+- If your consumers can keep up
+- What happens under month-end load
+
+### 5. Production Patterns Matter
+
+This demo implements real production patterns:
+- Idempotent producers
+- At-least-once delivery
+- Structured logging
+- Health checks
+- Graceful shutdown
+
+## Adapting This for Your Domain
+
+This demo uses NAV calculation, but the patterns apply to any domain:
+
+**E-commerce:**
+- Order Service → Inventory Service → Shipping Service
+
+**IoT:**
+- Device Telemetry → Processing Service → Alert Service
+
+**Financial Services:**
+- Trade Execution → Risk Check → Settlement
+
+**The architecture is identical:**
+1. Event producer publishes to Kafka
+2. Multiple consumers process in parallel
+3. Each consumer publishes downstream events
+4. Everything is observable via Prometheus/Grafana/Jaeger
+
+## Best Practices Demonstrated
+
+✅ **Separation of Concerns** - Each service has one job  
+✅ **Observability First** - Metrics, logs, traces from day 1  
+✅ **Horizontal Scalability** - Easy to add more instances  
+✅ **Resilience** - Services can fail independently  
+✅ **Testability** - Load testing built in  
+✅ **Developer Experience** - One command to start everything  
+✅ **Production Ready** - Implements real production patterns  
+
+## Next Steps
+
+### For Learning:
+- Modify the demo to add another service
+- Change the event schema and see schema evolution
+- Implement a dead letter queue
+- Add a saga pattern
+
+### For Production:
+- Add Kubernetes manifests
+- Implement auto-scaling based on lag
+- Set up CI/CD pipeline
+- Add authentication/authorization
+- Implement data encryption
 
 ## Conclusion
 
-You now have everything needed to build and operate production event-driven systems:
+Operating event-driven systems in production requires:
 
-**Parts 1-3:** Fundamentals, patterns, and Kafka basics  
-**Part 4:** Hands-on implementation  
-**Part 5:** Advanced Kafka features  
-**Part 6:** Advanced architectural patterns  
-**Part 7:** Production operations  
+**Theory (Part A):**
+- Understanding the three pillars of observability
+- Knowing how to debug distributed systems
+- Having comprehensive testing strategies
+- Planning deployment approaches
+- Preparing incident response procedures
 
-**You're ready to build scalable, reliable, event-driven systems!** 🚀
+**Practice (Part B):**
+- Actually building the observability stack
+- Instrumenting your code properly
+- Testing under realistic load
+- Experiencing failures and recovery
+- Iterating based on real metrics
+
+This guide gives you both. The theory ensures you understand **why** things work a certain way. The working demo lets you **see it in action** and **experiment safely**.
+
+**You're now ready to build and operate production event-driven systems!** 🚀
 
 Remember:
 - Start simple, add complexity as needed
@@ -1123,4 +1410,19 @@ Remember:
 - Document everything
 - Learn from incidents
 
+The full source code is available at: [GitHub Repository]
+
 Good luck with your event-driven journey!
+
+---
+
+## Additional Resources
+
+- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
+- [Prometheus Best Practices](https://prometheus.io/docs/practices/)
+- [OpenTelemetry .NET](https://opentelemetry.io/docs/instrumentation/net/)
+- [Confluent Kafka .NET Client](https://docs.confluent.io/kafka-clients/dotnet/current/overview.html)
+
+---
+
+**Built with ❤️ for the Event-Driven Architecture blog series**
