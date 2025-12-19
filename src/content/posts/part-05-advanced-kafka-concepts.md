@@ -87,18 +87,24 @@ graph TB
 ### At-Most-Once (Fire and Forget)
 
 **Configuration:**
-```python
-from kafka import KafkaProducer
+```csharp
+using Confluent.Kafka;
 
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
-    acks=0,  # Don't wait for acknowledgment
-    retries=0  # Don't retry
-)
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092",
+    Acks = Acks.None,  // Don't wait for acknowledgment
+    Retries = 0  // Don't retry
+};
 
-# Send message without waiting
-producer.send('orders', value=b'order-data')
-# Message might be lost, but we don't care!
+var producer = new ProducerBuilder<string, string>(config).Build();
+
+// Send message without waiting
+await producer.ProduceAsync("orders", new Message<string, string> 
+{ 
+    Value = "order-data" 
+});
+// Message might be lost, but we don't care!
 ```
 
 **Use cases:**
@@ -112,113 +118,144 @@ producer.send('orders', value=b'order-data')
 ### At-Least-Once (Default)
 
 **Producer Configuration:**
-```python
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
-    acks='all',  # Wait for all replicas
-    retries=3,  # Retry on failure
-    max_in_flight_requests_per_connection=5
-)
+```csharp
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092",
+    Acks = Acks.All,  // Wait for all replicas
+    Retries = 3,  // Retry on failure
+    MaxInFlight = 5
+};
 
-# Message guaranteed to be written
-future = producer.send('orders', value=order_data)
-record_metadata = future.get(timeout=10)  # Block until written
+var producer = new ProducerBuilder<string, string>(config).Build();
+
+// Message guaranteed to be written
+var deliveryResult = await producer.ProduceAsync("orders", 
+    new Message<string, string> { Value = orderData },
+    cancellationToken: default);
+// Block until written with timeout
 ```
 
 **Consumer Challenge: Duplicates!**
 
-```python
-# Problem: Consumer might process twice
-for message in consumer:
-    try:
-        process_order(message.value)  # Processes the order
-        consumer.commit()  # Commits offset
-    except Exception as e:
-        # If process_order succeeds but commit fails,
-        # message will be reprocessed on restart!
-        logger.error(f"Error: {e}")
+```csharp
+// Problem: Consumer might process twice
+var consumeResult = consumer.Consume(cancellationToken);
+try
+{
+    ProcessOrder(consumeResult.Message.Value);  // Processes the order
+    consumer.Commit(consumeResult);  // Commits offset
+}
+catch (Exception ex)
+{
+    // If ProcessOrder succeeds but Commit fails,
+    // message will be reprocessed on restart!
+    logger.LogError(ex, "Error processing message");
+}
 ```
 
 **Solution 1: Idempotent Consumer**
 
-```python
-import redis
+```csharp
+using StackExchange.Redis;
 
-redis_client = redis.Redis()
+var redis = ConnectionMultiplexer.Connect("localhost");
+var db = redis.GetDatabase();
 
-def process_message_idempotently(message):
-    event = message.value
-    event_id = event['event_id']
+void ProcessMessageIdempotently(ConsumeResult<string, string> message)
+{
+    var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(message.Message.Value);
+    var eventId = eventData["event_id"].ToString();
     
-    # Check if already processed
-    if redis_client.exists(f"processed:{event_id}"):
-        logger.info(f"Skipping duplicate: {event_id}")
-        return
+    // Check if already processed
+    if (db.KeyExists($"processed:{eventId}"))
+    {
+        logger.LogInformation("Skipping duplicate: {EventId}", eventId);
+        return;
+    }
     
-    # Process the event
-    process_order(event)
+    // Process the event
+    ProcessOrder(eventData);
     
-    # Mark as processed
-    redis_client.setex(
-        f"processed:{event_id}",
-        86400,  # 24 hour TTL
-        '1'
-    )
+    // Mark as processed
+    db.StringSet($"processed:{eventId}", "1", TimeSpan.FromHours(24));  // 24 hour TTL
     
-    logger.info(f"Processed: {event_id}")
+    logger.LogInformation("Processed: {EventId}", eventId);
+}
 
-# Consumer loop
-for message in consumer:
-    process_message_idempotently(message)
-    consumer.commit()
+// Consumer loop
+while (!cancellationToken.IsCancellationRequested)
+{
+    var consumeResult = consumer.Consume(cancellationToken);
+    ProcessMessageIdempotently(consumeResult);
+    consumer.Commit(consumeResult);
+}
 ```
 
 **Solution 2: Database Deduplication**
 
-```python
-from sqlalchemy import Column, String, DateTime, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+```csharp
+using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 
-Base = declarative_base()
-
-class ProcessedEvent(Base):
-    __tablename__ = 'processed_events'
+[Table("processed_events")]
+public class ProcessedEvent
+{
+    [Key]
+    [Column("event_id")]
+    public string EventId { get; set; }
     
-    event_id = Column(String(50), primary_key=True)
-    processed_at = Column(DateTime, default=datetime.utcnow)
-    order_id = Column(String(50))
-
-engine = create_engine('postgresql://localhost/mydb')
-Session = sessionmaker(bind=engine)
-
-def process_with_db_deduplication(message):
-    event = message.value
-    event_id = event['event_id']
+    [Column("processed_at")]
+    public DateTime ProcessedAt { get; set; } = DateTime.UtcNow;
     
-    session = Session()
+    [Column("order_id")]
+    public string OrderId { get; set; }
+}
+
+public class ApplicationDbContext : DbContext
+{
+    public DbSet<ProcessedEvent> ProcessedEvents { get; set; }
     
-    try:
-        # Check if processed
-        if session.query(ProcessedEvent).filter_by(event_id=event_id).first():
-            logger.info(f"Duplicate detected: {event_id}")
-            return
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        optionsBuilder.UseNpgsql("Host=localhost;Database=mydb;Username=user;Password=pass");
+    }
+}
+
+async Task ProcessWithDbDeduplicationAsync(ConsumeResult<string, string> message, ApplicationDbContext context)
+{
+    var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(message.Message.Value);
+    var eventId = eventData["event_id"].ToString();
+    
+    using var transaction = await context.Database.BeginTransactionAsync();
+    try
+    {
+        // Check if processed
+        if (await context.ProcessedEvents.AnyAsync(e => e.EventId == eventId))
+        {
+            logger.LogInformation("Duplicate detected: {EventId}", eventId);
+            return;
+        }
         
-        # Process in transaction
-        process_order(event)
+        // Process in transaction
+        await ProcessOrderAsync(eventData);
         
-        # Mark as processed
-        session.add(ProcessedEvent(
-            event_id=event_id,
-            order_id=event['order_id']
-        ))
-        session.commit()
+        // Mark as processed
+        context.ProcessedEvents.Add(new ProcessedEvent
+        {
+            EventId = eventId,
+            OrderId = eventData["order_id"].ToString()
+        });
         
-    except Exception as e:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+        await context.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+    catch
+    {
+        await transaction.RollbackAsync();
+        throw;
+    }
+}
 ```
 
 ### Exactly-Once Semantics (EOS)
@@ -262,35 +299,37 @@ sequenceDiagram
 
 **Idempotent Producer:**
 
-```python
-from kafka import KafkaProducer
-import json
-
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
+```csharp
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092",
     
-    # Enable idempotence
-    enable_idempotence=True,
+    // Enable idempotence
+    EnableIdempotence = true,
     
-    # Required for idempotence
-    acks='all',
-    retries=2147483647,  # Max retries
-    max_in_flight_requests_per_connection=5,
-    
-    # Serialization
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+    // Required for idempotence
+    Acks = Acks.All,
+    Retries = int.MaxValue,  // Max retries
+    MaxInFlight = 5
+};
 
-# Producer automatically handles deduplication
-# Each producer instance gets a unique PID (Producer ID)
-# Each message gets a sequence number
-# Broker deduplicates based on (PID, Sequence)
+var producer = new ProducerBuilder<string, string>(config).Build();
 
-for i in range(10):
-    producer.send('orders', {'order_id': f'ORD-{i}'})
+// Producer automatically handles deduplication
+// Each producer instance gets a unique PID (Producer ID)
+// Each message gets a sequence number
+// Broker deduplicates based on (PID, Sequence)
 
-producer.flush()
-producer.close()
+for (int i = 0; i < 10; i++)
+{
+    await producer.ProduceAsync("orders", new Message<string, string>
+    {
+        Value = JsonSerializer.Serialize(new { order_id = $"ORD-{i}" })
+    });
+}
+
+producer.Flush(TimeSpan.FromSeconds(10));
+producer.Dispose();
 ```
 
 **How it works:**
@@ -299,150 +338,204 @@ producer.close()
 2. **Sequence Number**: Messages numbered per partition
 3. **Broker Deduplication**: Rejects duplicates
 
-```python
-# Behind the scenes:
-# Message 1: PID=123, Partition=0, Sequence=0
-# Message 2: PID=123, Partition=0, Sequence=1
-# Message 3: PID=123, Partition=0, Sequence=2
+```csharp
+// Behind the scenes:
+// Message 1: PID=123, Partition=0, Sequence=0
+// Message 2: PID=123, Partition=0, Sequence=1
+// Message 3: PID=123, Partition=0, Sequence=2
 
-# If network fails and producer retries message 2:
-# PID=123, Partition=0, Sequence=1 (again)
-# Broker sees: "Already have sequence 1, ignore"
+// If network fails and producer retries message 2:
+// PID=123, Partition=0, Sequence=1 (again)
+// Broker sees: "Already have sequence 1, ignore"
 ```
 
 **Transactional Producer:**
 
-```python
-from kafka import KafkaProducer
+```csharp
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092",
+    TransactionalId = "my-transactional-producer",  // Must be unique
+    EnableIdempotence = true,
+    Acks = Acks.All
+};
 
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
-    transactional_id='my-transactional-producer',  # Must be unique
-    enable_idempotence=True,
-    acks='all'
-)
+var producer = new ProducerBuilder<string, string>(config).Build();
 
-# Initialize transactions
-producer.init_transactions()
+// Initialize transactions
+producer.InitTransactions(TimeSpan.FromSeconds(10));
 
-try:
-    # Begin transaction
-    producer.begin_transaction()
+try
+{
+    // Begin transaction
+    producer.BeginTransaction();
     
-    # Send multiple messages atomically
-    producer.send('orders', {'order_id': 'ORD-1'})
-    producer.send('inventory', {'product_id': 'PROD-1', 'qty': -1})
-    producer.send('analytics', {'event': 'order_placed'})
+    // Send multiple messages atomically
+    await producer.ProduceAsync("orders", new Message<string, string>
+    {
+        Value = JsonSerializer.Serialize(new { order_id = "ORD-1" })
+    });
+    await producer.ProduceAsync("inventory", new Message<string, string>
+    {
+        Value = JsonSerializer.Serialize(new { product_id = "PROD-1", qty = -1 })
+    });
+    await producer.ProduceAsync("analytics", new Message<string, string>
+    {
+        Value = JsonSerializer.Serialize(new { event = "order_placed" })
+    });
     
-    # All or nothing - commit transaction
-    producer.commit_transaction()
+    // All or nothing - commit transaction
+    producer.CommitTransaction(TimeSpan.FromSeconds(10));
     
-    print("✅ Transaction committed - all messages written atomically")
-    
-except Exception as e:
-    # Rollback on error
-    producer.abort_transaction()
-    print(f"❌ Transaction aborted: {e}")
+    Console.WriteLine("✅ Transaction committed - all messages written atomically");
+}
+catch (Exception ex)
+{
+    // Rollback on error
+    producer.AbortTransaction(TimeSpan.FromSeconds(10));
+    Console.WriteLine($"❌ Transaction aborted: {ex.Message}");
+}
 ```
 
 **Transactional Consumer:**
 
-```python
-from kafka import KafkaConsumer
+```csharp
+var consumerConfig = new ConsumerConfig
+{
+    BootstrapServers = "localhost:9092",
+    GroupId = "order-processor",
+    
+    // Only read committed transactions
+    IsolationLevel = IsolationLevel.ReadCommitted,
+    
+    // Disable auto-commit for manual control
+    EnableAutoCommit = false
+};
 
-consumer = KafkaConsumer(
-    'orders',
-    bootstrap_servers=['localhost:9092'],
-    group_id='order-processor',
-    
-    # Only read committed transactions
-    isolation_level='read_committed',
-    
-    # Disable auto-commit for manual control
-    enable_auto_commit=False
-)
+var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
+consumer.Subscribe("orders");
 
-for message in consumer:
-    event = message.value
+while (!cancellationToken.IsCancellationRequested)
+{
+    var consumeResult = consumer.Consume(cancellationToken);
+    var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(consumeResult.Message.Value);
     
-    try:
-        # Process message
-        process_order(event)
+    try
+    {
+        // Process message
+        await ProcessOrderAsync(eventData);
         
-        # Manually commit offset
-        consumer.commit()
-        
-    except Exception as e:
-        logger.error(f"Processing failed: {e}")
-        # Don't commit - message will be reprocessed
+        // Manually commit offset
+        consumer.Commit(consumeResult);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Processing failed");
+        // Don't commit - message will be reprocessed
+    }
+}
 ```
 
 **End-to-End Exactly-Once:**
 
-```python
-from kafka import KafkaProducer, KafkaConsumer
-import psycopg2
+```csharp
+using Npgsql;
 
-class ExactlyOnceProcessor:
-    def __init__(self):
-        # Consumer
-        self.consumer = KafkaConsumer(
-            'input-topic',
-            bootstrap_servers=['localhost:9092'],
-            group_id='processor',
-            isolation_level='read_committed',
-            enable_auto_commit=False
-        )
+public class ExactlyOnceProcessor
+{
+    private readonly IConsumer<string, string> _consumer;
+    private readonly IProducer<string, string> _producer;
+    private readonly NpgsqlConnection _dbConnection;
+
+    public ExactlyOnceProcessor()
+    {
+        // Consumer
+        var consumerConfig = new ConsumerConfig
+        {
+            BootstrapServers = "localhost:9092",
+            GroupId = "processor",
+            IsolationLevel = IsolationLevel.ReadCommitted,
+            EnableAutoCommit = false
+        };
+        _consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
+        _consumer.Subscribe("input-topic");
         
-        # Producer
-        self.producer = KafkaProducer(
-            bootstrap_servers=['localhost:9092'],
-            transactional_id='processor-producer',
-            enable_idempotence=True
-        )
+        // Producer
+        var producerConfig = new ProducerConfig
+        {
+            BootstrapServers = "localhost:9092",
+            TransactionalId = "processor-producer",
+            EnableIdempotence = true
+        };
+        _producer = new ProducerBuilder<string, string>(producerConfig).Build();
         
-        # Database
-        self.db = psycopg2.connect("dbname=mydb")
+        // Database
+        _dbConnection = new NpgsqlConnection("Host=localhost;Database=mydb;Username=user;Password=pass");
+        _dbConnection.Open();
         
-        self.producer.init_transactions()
-    
-    def process_exactly_once(self):
-        for message in self.consumer:
-            try:
-                self.producer.begin_transaction()
+        _producer.InitTransactions(TimeSpan.FromSeconds(10));
+    }
+
+    public async Task ProcessExactlyOnceAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var message = _consumer.Consume(cancellationToken);
+            try
+            {
+                _producer.BeginTransaction();
                 
-                # 1. Process message
-                result = self.process_message(message.value)
+                // 1. Process message
+                var result = await ProcessMessageAsync(message.Message.Value);
                 
-                # 2. Write to database
-                cursor = self.db.cursor()
-                cursor.execute(
-                    "INSERT INTO orders VALUES (%s, %s)",
-                    (result['order_id'], result['amount'])
-                )
-                self.db.commit()
+                // 2. Write to database
+                using var cmd = new NpgsqlCommand(
+                    "INSERT INTO orders VALUES (@order_id, @amount)",
+                    _dbConnection);
+                cmd.Parameters.AddWithValue("order_id", result["order_id"].ToString());
+                cmd.Parameters.AddWithValue("amount", Convert.ToDecimal(result["amount"]));
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
                 
-                # 3. Produce output event
-                self.producer.send('output-topic', result)
+                // 3. Produce output event
+                await _producer.ProduceAsync("output-topic", new Message<string, string>
+                {
+                    Value = JsonSerializer.Serialize(result)
+                }, cancellationToken);
                 
-                # 4. Commit consumer offsets (within transaction!)
-                self.producer.send_offsets_to_transaction(
-                    {
-                        TopicPartition('input-topic', message.partition): 
-                        OffsetAndMetadata(message.offset + 1, None)
-                    },
-                    self.consumer.config['group_id']
-                )
+                // 4. Commit consumer offsets (within transaction!)
+                var offsets = new TopicPartitionOffset[]
+                {
+                    new TopicPartitionOffset(
+                        new TopicPartition("input-topic", message.Partition),
+                        new Offset(message.Offset + 1))
+                };
                 
-                # 5. Commit transaction
-                self.producer.commit_transaction()
+                _producer.SendOffsetsToTransaction(
+                    offsets,
+                    _consumer.ConsumerGroupMetadata,
+                    TimeSpan.FromSeconds(10));
                 
-                print(f"✅ Processed exactly once: {result['order_id']}")
+                // 5. Commit transaction
+                _producer.CommitTransaction(TimeSpan.FromSeconds(10));
                 
-            except Exception as e:
-                self.producer.abort_transaction()
-                self.db.rollback()
-                print(f"❌ Transaction aborted: {e}")
+                Console.WriteLine($"✅ Processed exactly once: {result["order_id"]}");
+            }
+            catch (Exception ex)
+            {
+                _producer.AbortTransaction(TimeSpan.FromSeconds(10));
+                // Note: Npgsql doesn't support explicit rollback for individual commands
+                // In a transaction, you'd use NpgsqlTransaction instead
+                Console.WriteLine($"❌ Transaction aborted: {ex.Message}");
+            }
+        }
+    }
+
+    private Task<Dictionary<string, object>> ProcessMessageAsync(string messageValue)
+    {
+        // Process message implementation
+        return Task.FromResult(JsonSerializer.Deserialize<Dictionary<string, object>>(messageValue));
+    }
+}
 ```
 
 **Performance Impact:**
@@ -511,107 +604,126 @@ kafka-topics --create \
 
 **Producer (State Updates):**
 
-```python
-from kafka import KafkaProducer
-import json
+```csharp
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092"
+};
 
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
-    key_serializer=lambda k: k.encode('utf-8'),
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+var producer = new ProducerBuilder<string, string>(config).Build();
 
-# Update user profile
-producer.send(
-    'user-profiles',
-    key='user-123',  # Key determines which record to keep
-    value={
-        'user_id': 'user-123',
-        'name': 'Alice Smith',
-        'email': 'alice@example.com',
-        'preferences': {
-            'theme': 'dark',
-            'notifications': True
+// Update user profile
+await producer.ProduceAsync("user-profiles", new Message<string, string>
+{
+    Key = "user-123",  // Key determines which record to keep
+    Value = JsonSerializer.Serialize(new
+    {
+        user_id = "user-123",
+        name = "Alice Smith",
+        email = "alice@example.com",
+        preferences = new
+        {
+            theme = "dark",
+            notifications = true
         }
-    }
-)
+    })
+});
 
-# Later update
-producer.send(
-    'user-profiles',
-    key='user-123',
-    value={
-        'user_id': 'user-123',
-        'name': 'Alice Smith',
-        'email': 'alice.new@example.com',  # Updated email
-        'preferences': {
-            'theme': 'light',  # Updated theme
-            'notifications': True
+// Later update
+await producer.ProduceAsync("user-profiles", new Message<string, string>
+{
+    Key = "user-123",
+    Value = JsonSerializer.Serialize(new
+    {
+        user_id = "user-123",
+        name = "Alice Smith",
+        email = "alice.new@example.com",  // Updated email
+        preferences = new
+        {
+            theme = "light",  // Updated theme
+            notifications = true
         }
-    }
-)
+    })
+});
 
-# After compaction, only latest value for 'user-123' remains
+// After compaction, only latest value for 'user-123' remains
+producer.Flush(TimeSpan.FromSeconds(10));
 ```
 
 **Consumer (Rebuild State):**
 
-```python
-from kafka import KafkaConsumer, TopicPartition
-import json
-
-def rebuild_user_state():
-    """Rebuild entire user database from compacted log"""
+```csharp
+Dictionary<string, Dictionary<string, object>> RebuildUserState()
+{
+    // Rebuild entire user database from compacted log
+    var config = new ConsumerConfig
+    {
+        BootstrapServers = "localhost:9092",
+        AutoOffsetReset = AutoOffsetReset.Earliest  // Read from beginning
+    };
     
-    consumer = KafkaConsumer(
-        bootstrap_servers=['localhost:9092'],
-        auto_offset_reset='earliest',  # Read from beginning
-        key_deserializer=lambda k: k.decode('utf-8'),
-        value_deserializer=lambda v: json.loads(v.decode('utf-8'))
-    )
+    var consumer = new ConsumerBuilder<string, string>(config).Build();
     
-    # Get all partitions
-    partitions = consumer.partitions_for_topic('user-profiles')
-    topic_partitions = [
-        TopicPartition('user-profiles', p) for p in partitions
-    ]
-    consumer.assign(topic_partitions)
+    // Get all partitions
+    var metadata = consumer.GetMetadata(TimeSpan.FromSeconds(10));
+    var topic = metadata.Topics.FirstOrDefault(t => t.Topic == "user-profiles");
+    var topicPartitions = topic.Partitions
+        .Select(p => new TopicPartition("user-profiles", p.PartitionId))
+        .ToList();
     
-    # Rebuild state
-    user_state = {}
+    consumer.Assign(topicPartitions);
     
-    for message in consumer:
-        user_id = message.key
-        user_data = message.value
+    // Rebuild state
+    var userState = new Dictionary<string, Dictionary<string, object>>();
+    var endOffsets = consumer.GetWatermarkOffsets(topicPartitions.Select(tp => 
+        new TopicPartitionOffset(tp, Offset.End)).ToList());
+    
+    while (true)
+    {
+        var consumeResult = consumer.Consume(TimeSpan.FromSeconds(5));
         
-        # Latest value wins
-        user_state[user_id] = user_data
+        if (consumeResult == null)
+        {
+            // Check if we've reached the end
+            bool allCaughtUp = topicPartitions.All(tp =>
+            {
+                var position = consumer.Position(tp);
+                var watermark = consumer.GetWatermarkOffsets(tp);
+                return position >= watermark.High;
+            });
+            
+            if (allCaughtUp) break;
+            continue;
+        }
         
-        # Stop when caught up
-        if all(consumer.position(tp) >= consumer.end_offsets([tp])[tp] 
-               for tp in topic_partitions):
-            break
+        var userId = consumeResult.Message.Key;
+        var userData = JsonSerializer.Deserialize<Dictionary<string, object>>(consumeResult.Message.Value);
+        
+        // Latest value wins
+        userState[userId] = userData;
+    }
     
-    consumer.close()
+    consumer.Close();
     
-    print(f"✅ Rebuilt state for {len(user_state)} users")
-    return user_state
+    Console.WriteLine($"✅ Rebuilt state for {userState.Count} users");
+    return userState;
+}
 
-# Rebuild user database
-users = rebuild_user_state()
+// Rebuild user database
+var users = RebuildUserState();
 ```
 
 **Deleting Keys (Tombstone):**
 
-```python
-# Send null value to delete a key
-producer.send(
-    'user-profiles',
-    key='user-123',
-    value=None  # Tombstone - deletes the key
-)
+```csharp
+// Send null value to delete a key
+await producer.ProduceAsync("user-profiles", new Message<string, string>
+{
+    Key = "user-123",
+    Value = null  // Tombstone - deletes the key
+});
 
-# After compaction, user-123 is removed from the log
+// After compaction, user-123 is removed from the log
 ```
 
 ### Use Cases for Log Compaction
@@ -1022,60 +1134,78 @@ schema-registry:
 
 **Producer with Schema Registry:**
 
-```python
-from confluent_kafka import avro
-from confluent_kafka.avro import AvroProducer
+```csharp
+using Confluent.SchemaRegistry;
+using Confluent.SchemaRegistry.Serdes;
+using Confluent.Kafka;
 
-# Load schema
-value_schema = avro.load("order-v1.avsc")
+// Create schema registry client
+var schemaRegistryConfig = new SchemaRegistryConfig
+{
+    Url = "http://localhost:8081"
+};
+var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
 
-# Create producer
-producer = AvroProducer({
-    'bootstrap.servers': 'localhost:9092',
-    'schema.registry.url': 'http://localhost:8081'
-}, default_value_schema=value_schema)
+// Create producer with Avro serializer
+var producerConfig = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092"
+};
 
-# Produce message
-producer.produce(
-    topic='orders',
-    value={
-        'order_id': 'ORD-123',
-        'customer_id': 'CUST-456',
-        'amount': 99.99,
-        'currency': 'USD',
-        'order_date': int(time.time() * 1000)
+var producer = new ProducerBuilder<string, Order>(producerConfig)
+    .SetValueSerializer(new AvroSerializer<Order>(schemaRegistry))
+    .Build();
+
+// Produce message
+await producer.ProduceAsync("orders", new Message<string, Order>
+{
+    Value = new Order
+    {
+        order_id = "ORD-123",
+        customer_id = "CUST-456",
+        amount = 99.99,
+        currency = "USD",
+        order_date = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
     }
-)
+});
 
-producer.flush()
+producer.Flush(TimeSpan.FromSeconds(10));
 ```
 
 **Consumer with Schema Registry:**
 
-```python
-from confluent_kafka.avro import AvroConsumer
+```csharp
+// Create schema registry client
+var schemaRegistryConfig = new SchemaRegistryConfig
+{
+    Url = "http://localhost:8081"
+};
+var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
 
-consumer = AvroConsumer({
-    'bootstrap.servers': 'localhost:9092',
-    'group.id': 'order-processor',
-    'schema.registry.url': 'http://localhost:8081'
-})
+// Create consumer with Avro deserializer
+var consumerConfig = new ConsumerConfig
+{
+    BootstrapServers = "localhost:9092",
+    GroupId = "order-processor"
+};
 
-consumer.subscribe(['orders'])
+var consumer = new ConsumerBuilder<string, Order>(consumerConfig)
+    .SetValueDeserializer(new AvroDeserializer<Order>(schemaRegistry).AsSyncOverAsync())
+    .Build();
 
-while True:
-    msg = consumer.poll(1.0)
+consumer.Subscribe("orders");
+
+while (!cancellationToken.IsCancellationRequested)
+{
+    var consumeResult = consumer.Consume(cancellationToken);
     
-    if msg is None:
-        continue
+    if (consumeResult.Message == null)
+        continue;
     
-    if msg.error():
-        print(f"Error: {msg.error()}")
-        continue
-    
-    # Automatically deserialized using schema from registry
-    order = msg.value()
-    print(f"Order: {order['order_id']}, Amount: {order['amount']}")
+    // Automatically deserialized using schema from registry
+    var order = consumeResult.Message.Value;
+    Console.WriteLine($"Order: {order.order_id}, Amount: {order.amount}");
+}
 ```
 
 ### Schema Evolution
@@ -1102,48 +1232,57 @@ New field with default value - old consumers still work!
 
 **Compatibility Modes:**
 
-```python
-import requests
+```csharp
+using Confluent.SchemaRegistry;
 
-# Set compatibility mode
-requests.put(
-    'http://localhost:8081/config/orders-value',
-    json={'compatibility': 'BACKWARD'}
-)
+var schemaRegistryConfig = new SchemaRegistryConfig
+{
+    Url = "http://localhost:8081"
+};
+var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
 
-# Compatibility modes:
-# - BACKWARD: New schema can read old data
-# - FORWARD: Old schema can read new data
-# - FULL: Both backward and forward compatible
-# - NONE: No compatibility checking
+// Set compatibility mode
+await schemaRegistry.UpdateCompatibilityAsync(
+    "orders-value",
+    CompatibilityLevel.Backward
+);
+
+// Compatibility modes:
+// - Backward: New schema can read old data
+// - Forward: Old schema can read new data
+// - Full: Both backward and forward compatible
+// - None: No compatibility checking
 ```
 
 ## Performance Tuning
 
 ### Producer Tuning
 
-```python
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
+```csharp
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092",
     
-    # Batching for throughput
-    batch_size=32768,      # 32KB batches
-    linger_ms=10,          # Wait up to 10ms to fill batch
+    // Batching for throughput
+    BatchSize = 32768,      // 32KB batches
+    LingerMs = 10,          // Wait up to 10ms to fill batch
     
-    # Compression
-    compression_type='snappy',  # Fast compression
-    # Options: 'gzip', 'snappy', 'lz4', 'zstd'
+    // Compression
+    CompressionType = CompressionType.Snappy,  // Fast compression
+    // Options: CompressionType.Gzip, Snappy, Lz4, Zstd
     
-    # Buffer size
-    buffer_memory=67108864,  # 64MB buffer
+    // Buffer size
+    MessageMaxBytes = 1000000,  // 1MB max message size
     
-    # Network
-    max_in_flight_requests_per_connection=5,
+    // Network
+    MaxInFlight = 5,
     
-    # Reliability
-    acks='all',
-    retries=3
-)
+    // Reliability
+    Acks = Acks.All,
+    Retries = 3
+};
+
+var producer = new ProducerBuilder<string, string>(config).Build();
 ```
 
 **Compression Comparison:**
@@ -1166,55 +1305,83 @@ graph TB
 
 ### Consumer Tuning
 
-```python
-consumer = KafkaConsumer(
-    'orders',
-    bootstrap_servers=['localhost:9092'],
-    group_id='order-processor',
+```csharp
+var config = new ConsumerConfig
+{
+    BootstrapServers = "localhost:9092",
+    GroupId = "order-processor",
     
-    # Fetch settings
-    fetch_min_bytes=1024,           # Wait for 1KB minimum
-    fetch_max_wait_ms=500,          # But no more than 500ms
-    max_partition_fetch_bytes=1048576,  # 1MB per partition
+    // Fetch settings
+    FetchMinBytes = 1024,           // Wait for 1KB minimum
+    FetchMaxWaitMs = 500,           // But no more than 500ms
+    MaxPartitionFetchBytes = 1048576,  // 1MB per partition
     
-    # Processing
-    max_poll_records=500,           # Fetch 500 records per poll
-    max_poll_interval_ms=300000,    # 5 minutes max processing time
+    // Processing
+    MaxPollRecords = 500,           // Fetch 500 records per poll
+    MaxPollIntervalMs = 300000,     // 5 minutes max processing time
     
-    # Session management
-    session_timeout_ms=10000,       # 10 second timeout
-    heartbeat_interval_ms=3000,     # Heartbeat every 3 seconds
+    // Session management
+    SessionTimeoutMs = 10000,       // 10 second timeout
+    HeartbeatIntervalMs = 3000,     // Heartbeat every 3 seconds
     
-    # Auto-commit
-    enable_auto_commit=True,
-    auto_commit_interval_ms=5000
-)
+    // Auto-commit
+    EnableAutoCommit = true,
+    AutoCommitIntervalMs = 5000
+};
+
+var consumer = new ConsumerBuilder<string, string>(config).Build();
+consumer.Subscribe("orders");
 ```
 
 ### Parallel Processing
 
-```python
-from concurrent.futures import ThreadPoolExecutor
-import threading
+```csharp
+using System.Collections.Concurrent;
 
-consumer = KafkaConsumer('orders', ...)
-executor = ThreadPoolExecutor(max_workers=10)
+var consumer = new ConsumerBuilder<string, string>(config).Build();
+consumer.Subscribe("orders");
 
-def process_message(message):
-    """Process message in thread pool"""
-    try:
-        order = message.value
-        process_order(order)
-        return True
-    except Exception as e:
-        logger.error(f"Processing failed: {e}")
-        return False
+var semaphore = new SemaphoreSlim(10);  // Max 10 concurrent workers
+var tasks = new ConcurrentBag<Task>();
 
-for message in consumer:
-    # Submit to thread pool
-    future = executor.submit(process_message, message)
+async Task ProcessMessageAsync(ConsumeResult<string, string> message)
+{
+    // Process message in thread pool
+    try
+    {
+        var order = JsonSerializer.Deserialize<Order>(message.Message.Value);
+        await ProcessOrderAsync(order);
+        return;
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Processing failed");
+    }
+}
+
+while (!cancellationToken.IsCancellationRequested)
+{
+    var message = consumer.Consume(cancellationToken);
     
-    # Don't wait - continue consuming
+    // Limit concurrent processing
+    await semaphore.WaitAsync(cancellationToken);
+    
+    var task = Task.Run(async () =>
+    {
+        try
+        {
+            await ProcessMessageAsync(message);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }, cancellationToken);
+    
+    tasks.Add(task);
+    
+    // Don't wait - continue consuming
+}
 ```
 
 ### Broker Tuning
@@ -1285,14 +1452,17 @@ ssl.truststore.password=password
 
 **Producer/Consumer:**
 
-```python
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9093'],
-    security_protocol='SSL',
-    ssl_cafile='/path/to/ca-cert',
-    ssl_certfile='/path/to/client-cert',
-    ssl_keyfile='/path/to/client-key'
-)
+```csharp
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9093",
+    SecurityProtocol = SecurityProtocol.Ssl,
+    SslCaLocation = "/path/to/ca-cert",
+    SslCertificateLocation = "/path/to/client-cert",
+    SslKeyLocation = "/path/to/client-key"
+};
+
+var producer = new ProducerBuilder<string, string>(config).Build();
 ```
 
 ### SASL Authentication
@@ -1308,15 +1478,18 @@ sasl.enabled.mechanisms=PLAIN
 
 **Client:**
 
-```python
-producer = KafkaProducer(
-    bootstrap_servers=['localhost:9093'],
-    security_protocol='SASL_SSL',
-    sasl_mechanism='PLAIN',
-    sasl_plain_username='alice',
-    sasl_plain_password='password',
-    ssl_cafile='/path/to/ca-cert'
-)
+```csharp
+var config = new ProducerConfig
+{
+    BootstrapServers = "localhost:9093",
+    SecurityProtocol = SecurityProtocol.SaslSsl,
+    SaslMechanism = SaslMechanism.Plain,
+    SaslUsername = "alice",
+    SaslPassword = "password",
+    SslCaLocation = "/path/to/ca-cert"
+};
+
+var producer = new ProducerBuilder<string, string>(config).Build();
 ```
 
 ### ACLs (Access Control Lists)
