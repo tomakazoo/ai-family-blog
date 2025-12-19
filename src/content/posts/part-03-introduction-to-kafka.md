@@ -247,24 +247,24 @@ graph TB
 
 **Key insight:** Kafka guarantees ordering **within a partition**, but NOT across partitions.
 
-```python
-# Example: Partition assignment
+```csharp
+// Example: Partition assignment
 
-# Producer sends with key
-producer.send(
-    topic='orders',
-    key='customer-123',  # Same key → same partition
-    value=order_event
-)
+// Producer sends with key
+await producer.ProduceAsync("orders", new Message<string, string>
+{
+    Key = "customer-123",  // Same key → same partition
+    Value = JsonSerializer.Serialize(orderEvent)
+});
 
-# Messages with the same key always go to the same partition
-# This ensures ordering for that customer's events
+// Messages with the same key always go to the same partition
+// This ensures ordering for that customer's events
 
-# Without key - round-robin distribution
-producer.send(
-    topic='orders',
-    value=order_event  # No key → distributed across partitions
-)
+// Without key - round-robin distribution
+await producer.ProduceAsync("orders", new Message<string, string>
+{
+    Value = JsonSerializer.Serialize(orderEvent)  // No key → distributed across partitions
+});
 ```
 
 ### 3. Offsets
@@ -429,46 +429,44 @@ sequenceDiagram
 
 **Producer configuration:**
 
-```python
-from kafka import KafkaProducer
-import json
+```csharp
+using Confluent.Kafka;
 
-producer = KafkaProducer(
-    # Broker addresses
-    bootstrap_servers=['localhost:9092', 'localhost:9093', 'localhost:9094'],
+var config = new ProducerConfig
+{
+    // Broker addresses
+    BootstrapServers = "localhost:9092,localhost:9093,localhost:9094",
     
-    # Serialization
-    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-    key_serializer=lambda k: k.encode('utf-8') if k else None,
+    // Reliability
+    Acks = Acks.All,  // Wait for all replicas (most reliable)
+    Retries = 3,   // Retry on failure
+    MaxInFlight = 5,
     
-    # Reliability
-    acks='all',  # Wait for all replicas (most reliable)
-    retries=3,   # Retry on failure
-    max_in_flight_requests_per_connection=5,
+    // Performance
+    BatchSize = 16384,  // Batch messages for efficiency
+    LingerMs = 10,      // Wait up to 10ms to batch messages
+    CompressionType = CompressionType.Snappy,  // Compress for network efficiency
     
-    # Performance
-    batch_size=16384,  # Batch messages for efficiency
-    linger_ms=10,      # Wait up to 10ms to batch messages
-    compression_type='snappy',  # Compress for network efficiency
-    
-    # Idempotence (exactly-once)
-    enable_idempotence=True
-)
+    // Idempotence (exactly-once)
+    EnableIdempotence = true
+};
 
-# Send a message
-future = producer.send(
-    topic='orders',
-    key='customer-123',  # Ensures ordering for this customer
-    value={
-        'eventType': 'OrderPlaced',
-        'orderId': 'ORD-789',
-        'amount': 99.99
-    }
-)
+var producer = new ProducerBuilder<string, string>(config).Build();
 
-# Wait for confirmation
-record_metadata = future.get(timeout=10)
-print(f"Message sent to partition {record_metadata.partition} at offset {record_metadata.offset}")
+// Send a message
+var deliveryResult = await producer.ProduceAsync("orders", new Message<string, string>
+{
+    Key = "customer-123",  // Ensures ordering for this customer
+    Value = JsonSerializer.Serialize(new
+    {
+        eventType = "OrderPlaced",
+        orderId = "ORD-789",
+        amount = 99.99
+    })
+});
+
+// Wait for confirmation
+Console.WriteLine($"Message sent to partition {deliveryResult.Partition} at offset {deliveryResult.Offset}");
 ```
 
 Kafka's architecture defines clear roles for how data flows through the system.
@@ -522,47 +520,49 @@ graph TB
 3. **Adding consumers (up to # of partitions) increases parallelism**
 4. **Each group tracks its own offsets independently**
 
-```python
-from kafka import KafkaConsumer
+```csharp
+using Confluent.Kafka;
 
-# Consumer in a group
-consumer = KafkaConsumer(
-    'orders',  # Topic to consume
+// Consumer in a group
+var config = new ConsumerConfig
+{
+    // Consumer group
+    GroupId = "email-service",  // Multiple consumers with same GroupId work together
     
-    # Consumer group
-    group_id='email-service',  # Multiple consumers with same group_id work together
+    // Broker addresses
+    BootstrapServers = "localhost:9092",
     
-    # Broker addresses
-    bootstrap_servers=['localhost:9092'],
+    // Offset management
+    AutoOffsetReset = AutoOffsetReset.Earliest,  // Start from beginning if no offset stored
+    EnableAutoCommit = true,       // Auto-commit offsets
+    AutoCommitIntervalMs = 5000,  // Commit every 5 seconds
     
-    # Deserialization
-    value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-    
-    # Offset management
-    auto_offset_reset='earliest',  # Start from beginning if no offset stored
-    enable_auto_commit=True,       # Auto-commit offsets
-    auto_commit_interval_ms=5000,  # Commit every 5 seconds
-    
-    # Consumer behavior
-    max_poll_records=500,  # Fetch up to 500 records per poll
-    session_timeout_ms=10000  # 10 second timeout before rebalance
-)
+    // Consumer behavior
+    MaxPollRecords = 500,  // Fetch up to 500 records per poll
+    SessionTimeoutMs = 10000  // 10 second timeout before rebalance
+};
 
-print("Consumer started. Waiting for messages...")
+var consumer = new ConsumerBuilder<string, string>(config).Build();
+consumer.Subscribe("orders");  // Topic to consume
 
-for message in consumer:
-    event = message.value
+Console.WriteLine("Consumer started. Waiting for messages...");
+
+while (!cancellationToken.IsCancellationRequested)
+{
+    var consumeResult = consumer.Consume(cancellationToken);
+    var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(consumeResult.Message.Value);
     
-    print(f"Received message:")
-    print(f"  Partition: {message.partition}")
-    print(f"  Offset: {message.offset}")
-    print(f"  Key: {message.key}")
-    print(f"  Event Type: {event['eventType']}")
+    Console.WriteLine("Received message:");
+    Console.WriteLine($"  Partition: {consumeResult.Partition}");
+    Console.WriteLine($"  Offset: {consumeResult.Offset}");
+    Console.WriteLine($"  Key: {consumeResult.Message.Key}");
+    Console.WriteLine($"  Event Type: {eventData["eventType"]}");
     
-    # Process the event
-    process_event(event)
+    // Process the event
+    await ProcessEventAsync(eventData);
     
-    # Offset is auto-committed
+    // Offset is auto-committed
+}
 ```
 
 ### Consumer Group Scaling Example
@@ -681,22 +681,25 @@ Producers and consumers **batch messages**, reducing network overhead dramatical
 
 ### 4. Compression
 
-```python
-# Producer with compression
-producer = KafkaProducer(
-    compression_type='snappy',  # or 'gzip', 'lz4', 'zstd'
-    bootstrap_servers=['localhost:9092']
-)
+```csharp
+// Producer with compression
+var config = new ProducerConfig
+{
+    CompressionType = CompressionType.Snappy,  // or CompressionType.Gzip, Lz4, Zstd
+    BootstrapServers = "localhost:9092"
+};
 
-# Compression reduces:
-# - Network bandwidth (smaller messages)
-# - Disk space (stored compressed)
-# - Network latency (fewer bytes to transfer)
+var producer = new ProducerBuilder<string, string>(config).Build();
 
-# Compression ratio example:
-# Original: 1000 bytes
-# Snappy:    400 bytes (60% compression)
-# Gzip:      300 bytes (70% compression, slower)
+// Compression reduces:
+// - Network bandwidth (smaller messages)
+// - Disk space (stored compressed)
+// - Network latency (fewer bytes to transfer)
+
+// Compression ratio example:
+// Original: 1000 bytes
+// Snappy:    400 bytes (60% compression)
+// Gzip:      300 bytes (70% compression, slower)
 ```
 
 ### 5. Page Cache
@@ -753,28 +756,36 @@ graph TB
 ```
 
 **At-Most-Once:**
-```python
-producer = KafkaProducer(acks=0)  # Don't wait for acknowledgment
-# Fast, but messages might be lost
+```csharp
+var config = new ProducerConfig
+{
+    Acks = Acks.None  // Don't wait for acknowledgment
+};
+var producer = new ProducerBuilder<string, string>(config).Build();
+// Fast, but messages might be lost
 ```
 
 **At-Least-Once (Default):**
-```python
-producer = KafkaProducer(
-    acks='all',  # Wait for all replicas
-    retries=3    # Retry on failure
-)
-# Messages never lost, but might be delivered twice
+```csharp
+var config = new ProducerConfig
+{
+    Acks = Acks.All,  // Wait for all replicas
+    Retries = 3    // Retry on failure
+};
+var producer = new ProducerBuilder<string, string>(config).Build();
+// Messages never lost, but might be delivered twice
 ```
 
 **Exactly-Once:**
-```python
-producer = KafkaProducer(
-    enable_idempotence=True,  # Prevents duplicates
-    acks='all',
-    retries=Integer.MAX_VALUE
-)
-# Messages delivered exactly once (most expensive)
+```csharp
+var config = new ProducerConfig
+{
+    EnableIdempotence = true,  // Prevents duplicates
+    Acks = Acks.All,
+    Retries = int.MaxValue
+};
+var producer = new ProducerBuilder<string, string>(config).Build();
+// Messages delivered exactly once (most expensive)
 ```
 
 ![Exactly-Once Semantics](/images/eda/presentation-slide-9.png)
@@ -804,13 +815,13 @@ graph LR
 
 **Key point:** Use message keys to ensure related events go to the same partition and maintain ordering.
 
-```python
-# Ensure ordering for specific customer
-producer.send(
-    'orders',
-    key='customer-123',  # All events for customer-123 go to same partition
-    value=order_event
-)
+```csharp
+// Ensure ordering for specific customer
+await producer.ProduceAsync("orders", new Message<string, string>
+{
+    Key = "customer-123",  // All events for customer-123 go to same partition
+    Value = JsonSerializer.Serialize(orderEvent)
+});
 ```
 
 ## When to Use Kafka
@@ -931,15 +942,26 @@ orders
 Every database change becomes a Kafka event automatically!
 
 ### Schema Registry
-```python
-from confluent_kafka import avro
-from confluent_kafka.avro import AvroProducer
+```csharp
+using Confluent.SchemaRegistry;
+using Confluent.SchemaRegistry.Serdes;
+using Confluent.Kafka;
 
-# Schemas are versioned and validated
-producer = AvroProducer({
-    'bootstrap.servers': 'localhost:9092',
-    'schema.registry.url': 'http://localhost:8081'
-}, default_value_schema=value_schema)
+// Schemas are versioned and validated
+var schemaRegistryConfig = new SchemaRegistryConfig
+{
+    Url = "http://localhost:8081"
+};
+var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
+
+var producerConfig = new ProducerConfig
+{
+    BootstrapServers = "localhost:9092"
+};
+
+var producer = new ProducerBuilder<string, Order>(producerConfig)
+    .SetValueSerializer(new AvroSerializer<Order>(schemaRegistry))
+    .Build();
 ```
 
 ## Kafka Architecture Deep Dive
