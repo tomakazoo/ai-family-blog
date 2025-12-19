@@ -1775,7 +1775,7 @@ public class ECommerceSystem
 
 ## Next Steps
 
-In Part 7, we'll cover production operations:
+In [Part 7](part-07-production-operations), we'll cover production operations:
 - Monitoring and alerting
 - Debugging distributed systems
 - Testing strategies
