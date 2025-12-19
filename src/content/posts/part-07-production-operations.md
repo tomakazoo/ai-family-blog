@@ -833,6 +833,8 @@ Now that we understand the theory, let's build a **production-ready demonstratio
 - **Load Testing** to simulate production scenarios
 - **Complete Docker Compose** setup
 
+> **📦 Complete Implementation:** The full working code for this advanced monitoring demo is available in the [GitHub repository](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/examples/06-advanced-monitoring/dotnet/README.md). Follow the README for step-by-step instructions.
+
 ## What We'll Build: Event-Driven NAV Calculator
 
 A realistic financial services scenario: calculating Net Asset Value (NAV) for investment funds.
