@@ -12,7 +12,7 @@ coverImage: "/images/blog/streaming-data.jpg"
 
 > **💻 Language Note:** All code examples in this series are written in **C#**. Python implementations will be added in the future following the same patterns and concepts demonstrated here.
 
-> **🔧 Kafka Version:** This series uses **Kafka version 7.5.0 (Confluent Platform)**, which corresponds to **Apache Kafka 3.5.0**. The Confluent Platform image includes Kafka and additional tooling. This version still runs Zookeeper. In future updates, I will migrate to a version after 3.9 (which was the last version including Zookeeper).
+> **🔧 Kafka Version:** This series uses **Confluent Platform 7.5.0** (Apache Kafka 3.5.0) with ZooKeeper for earlier examples (Parts 1-4), and **Apache Kafka 3.7.0** in KRaft mode (no ZooKeeper) for advanced examples (Part 7). The Confluent Platform image includes Kafka and additional tooling like Schema Registry. Advanced examples demonstrate the modern KRaft mode, which eliminates the need for ZooKeeper.
 
 Alright, let's finally figure out this whole Event-Driven Kafka thing.
 
@@ -174,7 +174,7 @@ All source code, complete examples, and runnable implementations from this serie
 **Databases:** PostgreSQL, MongoDB, Redis  
 **Patterns:** CQRS, Event Sourcing, Sagas, Outbox, Inbox
 
-> **🔧 Kafka Version Note:** This series uses **Kafka 7.5.0 (Confluent Platform)**, corresponding to **Apache Kafka 3.5.0**. The Confluent Platform image includes Kafka and additional tooling. This version still runs Zookeeper. In future updates, I will migrate to a version after 3.9 (which was the last version including Zookeeper).  
+> **🔧 Kafka Version Note:** This series uses **Confluent Platform 7.5.0** (Apache Kafka 3.5.0) with ZooKeeper for earlier examples (Parts 1-4), and **Apache Kafka 3.7.0** in KRaft mode (no ZooKeeper) for advanced examples (Part 7). The Confluent Platform image includes Kafka and additional tooling like Schema Registry. Advanced examples demonstrate the modern KRaft mode, which eliminates the need for ZooKeeper.
 
 ### Diagram Distribution
 - **Architecture Diagrams:** 20+ (system overviews, infrastructure)
@@ -307,7 +307,7 @@ After this series, you can:
 
 > **💻 Language Note:** All code examples in this series are written in **C#**. Python implementations will be added in the future following the same patterns and concepts demonstrated here.
 
-> **🔧 Kafka Version:** This series uses **Kafka version 7.5.0 (Confluent Platform)**, which corresponds to **Apache Kafka 3.5.0**. The Confluent Platform image includes Kafka and additional tooling. This version still runs Zookeeper. In future updates, I will migrate to a version after 3.9 (which was the last version including Zookeeper).
+> **🔧 Kafka Version:** This series uses **Confluent Platform 7.5.0** (Apache Kafka 3.5.0) with ZooKeeper for earlier examples (Parts 1-4), and **Apache Kafka 3.7.0** in KRaft mode (no ZooKeeper) for advanced examples (Part 7). The Confluent Platform image includes Kafka and additional tooling like Schema Registry. Advanced examples demonstrate the modern KRaft mode, which eliminates the need for ZooKeeper.
 
 ### Getting Started
 1. **Start with [Part 1](part-01-introduction-to-eda** - Understand EDA fundamentals
