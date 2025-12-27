@@ -13,11 +13,10 @@ You've mastered Kafka and built event-driven systems. Now let's explore advanced
 
 **What we'll cover:**
 - CQRS (Command Query Responsibility Segregation)
-- Event Sourcing deep dive
-- Saga Pattern (Choreography vs Orchestration)
-- Outbox Pattern
-- Inbox Pattern
-- Complete e-commerce implementation
+- Event Sourcing as a paradigm shift
+- Saga Pattern for distributed transactions
+- Outbox and Inbox patterns for reliability
+- How these patterns work together
 
 ```mermaid
 graph TB
@@ -47,9 +46,9 @@ graph TB
 
 ## CQRS (Command Query Responsibility Segregation)
 
-### The Problem
+### The Problem with Single Models
 
-Traditional architecture uses the same model for reads and writes:
+Traditional applications use the same data model for everything - writing new orders, displaying order lists, generating reports, and powering analytics dashboards. This creates a fundamental tension:
 
 ```mermaid
 graph TB
@@ -68,15 +67,23 @@ graph TB
     style DB fill:#ff7675
 ```
 
-**Problems:**
-- Write model optimized for business rules
-- Read model needs different shapes (joins, denormalization)
-- Difficult to scale independently
-- Complex queries impact write performance
+**Writes need:**
+- Normalized data for consistency
+- Business rule enforcement
+- Transaction boundaries
+- Simple, focused models
+
+**Reads need:**
+- Denormalized data for performance
+- Pre-joined data to avoid complex queries
+- Multiple specialized views for different use cases
+- Caching and optimization
+
+Trying to serve both needs with one model is like using a Swiss Army knife for surgery. It can technically work, but you're better off with specialized tools.
 
 ### CQRS Solution
 
-Separate models for commands (writes) and queries (reads):
+**Command Query Responsibility Segregation** means exactly what it says: separate the responsibility for commands (writes) from queries (reads).
 
 ```mermaid
 graph TB
@@ -117,460 +124,41 @@ graph TB
 
 ### CQRS Implementation
 
-**Write Model (Commands):**
+**Write Side (Commands):**
+- Receives commands expressing intent: "Place this order", "Cancel that shipment"
+- Validates business rules
+- Updates the write database (normalized, transactional)
+- Publishes events describing what happened
 
-```csharp
-using System;
-using System.Collections.Generic;
-using System.Linq;
+**Read Side (Queries):**
+- Listens to events from the write side
+- Builds specialized read models optimized for specific queries
+- Can use different databases for different needs (MongoDB for documents, Elasticsearch for search, Redis for caching)
+- Serves queries fast without impacting writes
 
-// Commands (intent to change state)
-public record PlaceOrderCommand(
-    string CustomerId,
-    List<OrderItem> Items,
-    ShippingAddress ShippingAddress
-);
+### Why This Works
 
-public record CancelOrderCommand(
-    string OrderId,
-    string Reason
-);
+When a customer places an order:
 
-// Events (state changes that happened)
-public record OrderPlacedEvent(
-    string EventId,
-    string OrderId,
-    string CustomerId,
-    List<OrderItem> Items,
-    decimal TotalAmount,
-    DateTime Timestamp
-);
+1. **Command Handler** validates the order, saves it to the write database, and publishes "OrderPlaced" event
+2. **Multiple Projections** listen to this event:
+   - **Order List projection** adds a summary to MongoDB for the customer dashboard
+   - **Analytics projection** updates daily sales totals in PostgreSQL
+   - **Search projection** indexes the order in Elasticsearch for admin searches
+   - **Notification projection** triggers email confirmation
 
-public record OrderCancelledEvent(
-    string EventId,
-    string OrderId,
-    string Reason,
-    DateTime Timestamp
-);
+Each read model is purpose-built for its specific use case. Your customer dashboard queries don't compete with your analytics reports. Your search system doesn't slow down order placement.
 
-// Write Model (Command Handler)
-public class OrderCommandHandler
-{
-    private readonly IOrderRepository _repository;
-    private readonly IEventBus _eventBus;
+### The Trade-Off: Eventual Consistency
 
-    public OrderCommandHandler(IOrderRepository repository, IEventBus eventBus)
-    {
-        _repository = repository;
-        _eventBus = eventBus;
-    }
+The catch? Your read models aren't updated instantly. There's a small delay (usually milliseconds to seconds) between writing an order and seeing it in all read views. This is called **eventual consistency**.
 
-    public string HandlePlaceOrder(PlaceOrderCommand command)
-    {
-        // 1. Validate command
-        ValidatePlaceOrder(command);
-        
-        // 2. Create aggregate
-        var order = Order.Create(
-            command.CustomerId,
-            command.Items,
-            command.ShippingAddress
-        );
-        
-        // 3. Save to write database
-        _repository.Save(order);
-        
-        // 4. Publish events
-        foreach (var evt in order.UncommittedEvents)
-        {
-            _eventBus.Publish("orders", evt);
-        }
-        
-        return order.OrderId;
-    }
+For most business cases, this is fine—even preferable. When you click "Place Order" on Amazon, the confirmation page can say "Order received!" before every microservice has finished updating. The order *will* appear in your order history shortly.
 
-    public void HandleCancelOrder(CancelOrderCommand command)
-    {
-        // 1. Load order
-        var order = _repository.Get(command.OrderId);
-        
-        if (order == null)
-            throw new OrderNotFoundException(command.OrderId);
-        
-        // 2. Execute business logic
-        order.Cancel(command.Reason);
-        
-        // 3. Save changes
-        _repository.Save(order);
-        
-        // 4. Publish events
-        foreach (var evt in order.UncommittedEvents)
-        {
-            _eventBus.Publish("orders", evt);
-        }
-    }
-
-    private void ValidatePlaceOrder(PlaceOrderCommand command)
-    {
-        // Validation logic
-    }
-}
-
-// Domain Model
-public class Order
-{
-    public string OrderId { get; private set; }
-    public string CustomerId { get; private set; }
-    public List<OrderItem> Items { get; private set; }
-    public string Status { get; private set; }
-    public decimal TotalAmount { get; private set; }
-    public List<object> UncommittedEvents { get; private set; }
-
-    private Order()
-    {
-        UncommittedEvents = new List<object>();
-    }
-
-    public static Order Create(string customerId, List<OrderItem> items, ShippingAddress shippingAddress)
-    {
-        var order = new Order();
-        order.OrderId = $"ORD-{Guid.NewGuid():N}";
-        order.CustomerId = customerId;
-        order.Items = items;
-        order.Status = "PLACED";
-        order.TotalAmount = items.Sum(item => item.Price * item.Quantity);
-        
-        // Record event
-        var evt = new OrderPlacedEvent(
-            EventId: Guid.NewGuid().ToString(),
-            OrderId: order.OrderId,
-            CustomerId: customerId,
-            Items: items,
-            TotalAmount: order.TotalAmount,
-            Timestamp: DateTime.UtcNow
-        );
-        order.UncommittedEvents.Add(evt);
-        
-        return order;
-    }
-
-    public void Cancel(string reason)
-    {
-        if (Status == "SHIPPED" || Status == "DELIVERED")
-            throw new CannotCancelOrderException("Order already shipped");
-        
-        Status = "CANCELLED";
-        
-        // Record event
-        var evt = new OrderCancelledEvent(
-            EventId: Guid.NewGuid().ToString(),
-            OrderId: OrderId,
-            Reason: reason,
-            Timestamp: DateTime.UtcNow
-        );
-        UncommittedEvents.Add(evt);
-    }
-}
-
-// Supporting types
-public record OrderItem(string ProductId, int Quantity, decimal Price);
-public record ShippingAddress(string Street, string City, string State, string ZipCode);
-```
-
-**Read Model (Queries):**
-
-```csharp
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Confluent.Kafka;
-using MongoDB.Driver;
-using System.Text.Json;
-
-// Read Model 1: Order List View
-public class OrderListProjection
-{
-    private readonly IConsumer<string, string> _consumer;
-    private readonly IMongoCollection<OrderListView> _collection;
-
-    public OrderListProjection(IConsumer<string, string> consumer, IMongoDatabase database)
-    {
-        _consumer = consumer;
-        _consumer.Subscribe("orders");
-        _collection = database.GetCollection<OrderListView>("order_list");
-    }
-
-    public async Task ProjectAsync(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var result = _consumer.Consume(cancellationToken);
-            var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(result.Message.Value);
-            
-            var eventType = eventData["event_type"].ToString();
-            
-            if (eventType == "OrderPlaced")
-            {
-                await HandleOrderPlacedAsync(eventData);
-            }
-            else if (eventType == "OrderCancelled")
-            {
-                await HandleOrderCancelledAsync(eventData);
-            }
-        }
-    }
-
-    private async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
-    {
-        var items = JsonSerializer.Deserialize<List<OrderItem>>(eventData["items"].ToString());
-        
-        var view = new OrderListView
-        {
-            OrderId = eventData["order_id"].ToString(),
-            CustomerId = eventData["customer_id"].ToString(),
-            TotalAmount = Convert.ToDecimal(eventData["total_amount"]),
-            ItemCount = items.Count,
-            Status = "PLACED",
-            OrderDate = DateTime.Parse(eventData["timestamp"].ToString())
-        };
-        
-        await _collection.InsertOneAsync(view);
-    }
-
-    private async Task HandleOrderCancelledAsync(Dictionary<string, object> eventData)
-    {
-        var filter = Builders<OrderListView>.Filter.Eq(o => o.OrderId, eventData["order_id"].ToString());
-        var update = Builders<OrderListView>.Update
-            .Set(o => o.Status, "CANCELLED")
-            .Set(o => o.CancelReason, eventData["reason"].ToString());
-        
-        await _collection.UpdateOneAsync(filter, update);
-    }
-}
-
-// Read Model 2: Order Details View
-public class OrderDetailsProjection
-{
-    private readonly IConsumer<string, string> _consumer;
-    private readonly IMongoCollection<OrderDetailsView> _collection;
-
-    public OrderDetailsProjection(IConsumer<string, string> consumer, IMongoDatabase database)
-    {
-        _consumer = consumer;
-        _consumer.Subscribe("orders");
-        _collection = database.GetCollection<OrderDetailsView>("order_details");
-    }
-
-    public async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
-    {
-        var items = JsonSerializer.Deserialize<List<OrderItem>>(eventData["items"].ToString());
-        
-        var view = new OrderDetailsView
-        {
-            OrderId = eventData["order_id"].ToString(),
-            CustomerId = eventData["customer_id"].ToString(),
-            Items = items,
-            TotalAmount = Convert.ToDecimal(eventData["total_amount"]),
-            Status = "PLACED",
-            OrderDate = DateTime.Parse(eventData["timestamp"].ToString()),
-            Events = new List<Dictionary<string, object>> { eventData }
-        };
-        
-        await _collection.InsertOneAsync(view);
-    }
-}
-
-// Read Model 3: Analytics View
-public class OrderAnalyticsProjection
-{
-    private readonly IConsumer<string, string> _consumer;
-    private readonly IMongoCollection<DailyAnalytics> _collection;
-
-    public OrderAnalyticsProjection(IConsumer<string, string> consumer, IMongoDatabase database)
-    {
-        _consumer = consumer;
-        _consumer.Subscribe("orders");
-        _collection = database.GetCollection<DailyAnalytics>("analytics");
-    }
-
-    public async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
-    {
-        var timestamp = DateTime.Parse(eventData["timestamp"].ToString());
-        var date = timestamp.Date;
-        
-        var filter = Builders<DailyAnalytics>.Filter.Eq(a => a.Date, date);
-        var update = Builders<DailyAnalytics>.Update
-            .Inc(a => a.TotalOrders, 1)
-            .Inc(a => a.TotalRevenue, Convert.ToDecimal(eventData["total_amount"]));
-        
-        await _collection.UpdateOneAsync(
-            filter,
-            update,
-            new UpdateOptions { IsUpsert = true }
-        );
-    }
-}
-
-// Query Service
-public class OrderQueryService
-{
-    private readonly IMongoDatabase _database;
-
-    public OrderQueryService(IMongoDatabase database)
-    {
-        _database = database;
-    }
-
-    public async Task<List<OrderListView>> GetOrderListAsync(string customerId = null, int limit = 50)
-    {
-        var collection = _database.GetCollection<OrderListView>("order_list");
-        var filter = customerId != null
-            ? Builders<OrderListView>.Filter.Eq(o => o.CustomerId, customerId)
-            : Builders<OrderListView>.Filter.Empty;
-        
-        return await collection.Find(filter)
-            .Limit(limit)
-            .ToListAsync();
-    }
-
-    public async Task<OrderDetailsView> GetOrderDetailsAsync(string orderId)
-    {
-        var collection = _database.GetCollection<OrderDetailsView>("order_details");
-        var filter = Builders<OrderDetailsView>.Filter.Eq(o => o.OrderId, orderId);
-        return await collection.Find(filter).FirstOrDefaultAsync();
-    }
-
-    public async Task<List<DailyAnalytics>> GetAnalyticsAsync(DateTime startDate, DateTime endDate)
-    {
-        var collection = _database.GetCollection<DailyAnalytics>("analytics");
-        var filter = Builders<DailyAnalytics>.Filter
-            .And(
-                Builders<DailyAnalytics>.Filter.Gte(a => a.Date, startDate),
-                Builders<DailyAnalytics>.Filter.Lte(a => a.Date, endDate)
-            );
-        
-        return await collection.Find(filter).ToListAsync();
-    }
-}
-
-// View Models
-public class OrderListView
-{
-    public string OrderId { get; set; }
-    public string CustomerId { get; set; }
-    public decimal TotalAmount { get; set; }
-    public int ItemCount { get; set; }
-    public string Status { get; set; }
-    public DateTime OrderDate { get; set; }
-    public string CancelReason { get; set; }
-}
-
-public class OrderDetailsView
-{
-    public string OrderId { get; set; }
-    public string CustomerId { get; set; }
-    public List<OrderItem> Items { get; set; }
-    public decimal TotalAmount { get; set; }
-    public string Status { get; set; }
-    public DateTime OrderDate { get; set; }
-    public List<Dictionary<string, object>> Events { get; set; }
-}
-
-public class DailyAnalytics
-{
-    public DateTime Date { get; set; }
-    public int TotalOrders { get; set; }
-    public decimal TotalRevenue { get; set; }
-}
-```
-
-**API Layer:**
-
-```csharp
-using Microsoft.AspNetCore.Mvc;
-using System.Threading.Tasks;
-
-[ApiController]
-[Route("api/[controller]")]
-public class OrdersController : ControllerBase
-{
-    private readonly OrderCommandHandler _commandHandler;
-    private readonly OrderQueryService _queryService;
-
-    public OrdersController(OrderCommandHandler commandHandler, OrderQueryService queryService)
-    {
-        _commandHandler = commandHandler;
-        _queryService = queryService;
-    }
-
-    // Commands (writes)
-    [HttpPost]
-    public async Task<ActionResult<OrderCreatedResponse>> CreateOrder([FromBody] CreateOrderRequest request)
-    {
-        var command = new PlaceOrderCommand(
-            CustomerId: request.CustomerId,
-            Items: request.Items,
-            ShippingAddress: request.ShippingAddress
-        );
-        
-        var orderId = _commandHandler.HandlePlaceOrder(command);
-        
-        return Accepted(new OrderCreatedResponse { OrderId = orderId });
-    }
-
-    [HttpPost("{orderId}/cancel")]
-    public async Task<ActionResult> CancelOrder(string orderId, [FromBody] CancelOrderRequest request)
-    {
-        var command = new CancelOrderCommand(
-            OrderId: orderId,
-            Reason: request.Reason ?? "Customer requested"
-        );
-        
-        _commandHandler.HandleCancelOrder(command);
-        
-        return Accepted(new { status = "cancelled" });
-    }
-
-    // Queries (reads)
-    [HttpGet]
-    public async Task<ActionResult<List<OrderListView>>> ListOrders([FromQuery] string customerId = null)
-    {
-        var orders = await _queryService.GetOrderListAsync(customerId);
-        return Ok(orders);
-    }
-
-    [HttpGet("{orderId}")]
-    public async Task<ActionResult<OrderDetailsView>> GetOrder(string orderId)
-    {
-        var order = await _queryService.GetOrderDetailsAsync(orderId);
-        if (order == null)
-            return NotFound(new { error = "Order not found" });
-        
-        return Ok(order);
-    }
-
-    [HttpGet("analytics")]
-    public async Task<ActionResult<List<DailyAnalytics>>> GetAnalytics(
-        [FromQuery] DateTime startDate,
-        [FromQuery] DateTime endDate)
-    {
-        var analytics = await _queryService.GetAnalyticsAsync(startDate, endDate);
-        return Ok(analytics);
-    }
-}
-
-// Request/Response DTOs
-public record CreateOrderRequest(
-    string CustomerId,
-    List<OrderItem> Items,
-    ShippingAddress ShippingAddress
-);
-
-public record CancelOrderRequest(string Reason);
-
-public record OrderCreatedResponse(string OrderId);
-```
+**When NOT to use CQRS:**
+- Simple CRUD applications
+- When you need immediate read-after-write consistency
+- Small applications where the complexity outweighs the benefits
 
 ### CQRS Benefits
 
@@ -639,428 +227,75 @@ In that worldview, pluralism is normal: one event stream, many read models, many
 - The system expects to build new models from the same events as requirements, insights, and environments change.
 - Your main job is to create valuable behavior, not to freeze the world into one perfect schema.
 
-That is why Event Sourcing feels less like a persistence pattern and more like a paradigm shift: from monolithic models to constructivist, experience-first software.
+That is why Event Sourcing feels less like a persistence pattern and more like a paradigm shift: from monolithic models to, experience-first software.
+
+### How It Works
+
+Instead of storing your order as:
+```
+Order #123: Status = SHIPPED, Total = $299, Items = 3
+```
+
+You store the history:
+```
+Event 1: OrderCreated (customer: Alice, items: [laptop, mouse])
+Event 2: ItemAdded (item: keyboard, price: $49)
+Event 3: PaymentReceived (amount: $299, method: credit_card)
+Event 4: OrderShipped (tracking: 1Z999AA1)
+```
+
+Your current state? Replay all the events. Want to see what the order looked like yesterday? Replay events up to yesterday. Need a new report? Build a new projection from the same events.
+
+### The Power: Time Travel and Flexibility
+
+**Time Travel:** "Show me what this customer's order history looked like on Black Friday" → Replay events up to that date.
+
+**New Insights:** "We need a report of all cancelled orders with reasons" → Build a new projection from existing events, no database migration needed.
+
+**Complete Audit Trail:** Every change is recorded with who, what, when, and why. Perfect for regulated industries.
+
+**Debugging:** "What happened to order #123?" → Read the event stream: created, payment failed, customer added new card, payment succeeded, shipped.
+
+### Events Before Models: The Real Insight
+
+The traditional approach asks: "What's the right data model?" Event Sourcing asks: "What happened?"
+
+Models are temporary. Business needs change. Reports evolve. Event Sourcing lets you rebuild models as needed while keeping the raw truth: the events themselves.
+
+**This is why Event Sourcing feels less like a persistence pattern and more like a paradigm shift.** You're not just changing how you store data—you're changing how you think about state, time, and truth in your system.
+
+### The Practical Side: Snapshots
+
+Replaying 10 million events every time you load an order? That's slow. Solution: **snapshots**.
+
+Every 100 (or 1000) events, save a snapshot of the current state. Then replay only events since the last snapshot. Like bookmarks in a long book.
+
+### When to Use Event Sourcing
+
+**Great for:**
+- Audit-heavy domains (finance, healthcare, legal)
+- Complex business domains where history matters
+- Systems that need time-travel queries
+- Applications with evolving reporting needs
+
+**Avoid when:**
+- Simple CRUD is enough
+- You can't tolerate the complexity
+- Your team isn't ready for the mindset shift
 
 ### Complete Event Sourcing Implementation
 
-```csharp
-using System;
-using System.Collections.Generic;
-using System.Text.Json.Serialization;
+> **📚 Hands-On Guide:** For a complete step-by-step walkthrough demonstrating event sourcing with Kafka, see the [Event Sourcing Pattern Demonstration](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/examples/06-event-sourcing/dotnet/STEP-BY-STEP.md) guide. This practical tutorial walks you through:
+> - **OrderService**: Creating orders and watching events flow to Kafka
+> - **EventReplay**: Observing state rebuilding by replaying events step-by-step
+> - **TimeTravel**: Querying historical order state at any point in time
+> - **Kafka UI**: Visualizing events stored in Kafka with complete audit trails
+> 
+> The guide demonstrates key concepts: events as the source of truth, state rebuilding through event replay, version tracking for concurrency control, and time-travel queries. You'll see exactly how Kafka stores immutable events and how aggregates rebuild their state by replaying the event stream.
 
-// Base Event
-public abstract record DomainEvent(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version
-);
+## Sagas: Distributed Transactions That Actually Work
 
-// Order Events
-public record OrderCreated(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version,
-    string CustomerId
-) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
-
-public record ItemAdded(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version,
-    string ProductId,
-    int Quantity,
-    decimal Price
-) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
-
-public record ItemRemoved(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version,
-    string ProductId
-) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
-
-public record ShippingAddressSet(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version,
-    Dictionary<string, string> Address
-) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
-
-public record OrderSubmitted(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version
-) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
-
-public record PaymentReceived(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version,
-    string PaymentId,
-    decimal Amount
-) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
-
-public record OrderShipped(
-    string EventId,
-    string AggregateId,
-    string EventType,
-    DateTime Timestamp,
-    int Version,
-    string TrackingNumber
-) : DomainEvent(EventId, AggregateId, EventType, Timestamp, Version);
-
-// Aggregate Root
-public class Order
-{
-    public string OrderId { get; private set; }
-    public string CustomerId { get; private set; }
-    public List<OrderItem> Items { get; private set; }
-    public Dictionary<string, string> ShippingAddress { get; private set; }
-    public string Status { get; private set; }
-    public int Version { get; private set; }
-    public List<DomainEvent> UncommittedEvents { get; private set; }
-
-    private Order(string orderId)
-    {
-        OrderId = orderId;
-        Items = new List<OrderItem>();
-        UncommittedEvents = new List<DomainEvent>();
-        Version = 0;
-    }
-
-    // Commands
-    public static Order Create(string orderId, string customerId)
-    {
-        var order = new Order(orderId);
-        var evt = new OrderCreated(
-            EventId: Guid.NewGuid().ToString(),
-            AggregateId: orderId,
-            EventType: "OrderCreated",
-            Timestamp: DateTime.UtcNow,
-            Version: 1,
-            CustomerId: customerId
-        );
-        
-        order.Apply(evt);
-        order.UncommittedEvents.Add(evt);
-        
-        return order;
-    }
-
-    public void AddItem(string productId, int quantity, decimal price)
-    {
-        if (Status == "SUBMITTED")
-            throw new InvalidOperationException("Cannot modify submitted order");
-        
-        var evt = new ItemAdded(
-            EventId: Guid.NewGuid().ToString(),
-            AggregateId: OrderId,
-            EventType: "ItemAdded",
-            Timestamp: DateTime.UtcNow,
-            Version: Version + 1,
-            ProductId: productId,
-            Quantity: quantity,
-            Price: price
-        );
-        
-        Apply(evt);
-        UncommittedEvents.Add(evt);
-    }
-
-    public void SetShippingAddress(Dictionary<string, string> address)
-    {
-        var evt = new ShippingAddressSet(
-            EventId: Guid.NewGuid().ToString(),
-            AggregateId: OrderId,
-            EventType: "ShippingAddressSet",
-            Timestamp: DateTime.UtcNow,
-            Version: Version + 1,
-            Address: address
-        );
-        
-        Apply(evt);
-        UncommittedEvents.Add(evt);
-    }
-
-    public void Submit()
-    {
-        if (!Items.Any())
-            throw new InvalidOperationException("Cannot submit empty order");
-        if (ShippingAddress == null)
-            throw new InvalidOperationException("Shipping address required");
-        
-        var evt = new OrderSubmitted(
-            EventId: Guid.NewGuid().ToString(),
-            AggregateId: OrderId,
-            EventType: "OrderSubmitted",
-            Timestamp: DateTime.UtcNow,
-            Version: Version + 1
-        );
-        
-        Apply(evt);
-        UncommittedEvents.Add(evt);
-    }
-
-    // Event Handlers (apply events to rebuild state)
-    private void Apply(DomainEvent evt)
-    {
-        switch (evt)
-        {
-            case OrderCreated e:
-                CustomerId = e.CustomerId;
-                Status = "CREATED";
-                break;
-            
-            case ItemAdded e:
-                Items.Add(new OrderItem(e.ProductId, e.Quantity, e.Price));
-                break;
-            
-            case ItemRemoved e:
-                Items.RemoveAll(i => i.ProductId == e.ProductId);
-                break;
-            
-            case ShippingAddressSet e:
-                ShippingAddress = e.Address;
-                break;
-            
-            case OrderSubmitted:
-                Status = "SUBMITTED";
-                break;
-            
-            case PaymentReceived:
-                Status = "PAID";
-                break;
-            
-            case OrderShipped:
-                Status = "SHIPPED";
-                break;
-        }
-        
-        Version = evt.Version;
-    }
-
-    public void LoadFromHistory(IEnumerable<DomainEvent> events)
-    {
-        foreach (var evt in events)
-        {
-            Apply(evt);
-        }
-    }
-}
-
-// Event Store
-public class EventStore
-{
-    private readonly Dictionary<string, List<DomainEvent>> _events = new();
-    private readonly Dictionary<string, Snapshot> _snapshots = new();
-    private readonly IEventPublisher _publisher;
-
-    public EventStore(IEventPublisher publisher)
-    {
-        _publisher = publisher;
-    }
-
-    public int SaveEvents(string aggregateId, List<DomainEvent> events, int expectedVersion)
-    {
-        if (!_events.ContainsKey(aggregateId))
-            _events[aggregateId] = new List<DomainEvent>();
-        
-        // Check version (optimistic locking)
-        var currentVersion = _events[aggregateId].Count;
-        if (currentVersion != expectedVersion)
-            throw new ConcurrencyException(
-                $"Expected version {expectedVersion}, but current is {currentVersion}"
-            );
-        
-        // Append events
-        _events[aggregateId].AddRange(events);
-        
-        // Publish to event bus
-        foreach (var evt in events)
-        {
-            _publisher.PublishAsync("order-events", evt);
-        }
-        
-        return _events[aggregateId].Count;
-    }
-
-    public List<DomainEvent> GetEvents(string aggregateId, int fromVersion = 0)
-    {
-        if (!_events.ContainsKey(aggregateId))
-            return new List<DomainEvent>();
-        
-        return _events[aggregateId].Skip(fromVersion).ToList();
-    }
-
-    public void SaveSnapshot(string aggregateId, Dictionary<string, object> snapshot, int version)
-    {
-        _snapshots[aggregateId] = new Snapshot
-        {
-            State = snapshot,
-            Version = version,
-            Timestamp = DateTime.UtcNow
-        };
-    }
-
-    public Snapshot GetSnapshot(string aggregateId)
-    {
-        return _snapshots.ContainsKey(aggregateId) ? _snapshots[aggregateId] : null;
-    }
-}
-
-public class Snapshot
-{
-    public Dictionary<string, object> State { get; set; }
-    public int Version { get; set; }
-    public DateTime Timestamp { get; set; }
-}
-
-// Repository
-public class OrderRepository
-{
-    private readonly EventStore _eventStore;
-
-    public OrderRepository(EventStore eventStore)
-    {
-        _eventStore = eventStore;
-    }
-
-    public void Save(Order order)
-    {
-        if (!order.UncommittedEvents.Any())
-            return;
-        
-        _eventStore.SaveEvents(
-            order.OrderId,
-            order.UncommittedEvents,
-            order.Version - order.UncommittedEvents.Count
-        );
-        
-        order.UncommittedEvents.Clear();
-        
-        // Save snapshot every 100 events
-        if (order.Version % 100 == 0)
-        {
-            _eventStore.SaveSnapshot(
-                order.OrderId,
-                new Dictionary<string, object>
-                {
-                    ["customer_id"] = order.CustomerId,
-                    ["items"] = order.Items,
-                    ["shipping_address"] = order.ShippingAddress,
-                    ["status"] = order.Status
-                },
-                order.Version
-            );
-        }
-    }
-
-    public Order Get(string orderId)
-    {
-        var order = new Order(orderId);
-        
-        // Try to load from snapshot
-        var snapshot = _eventStore.GetSnapshot(orderId);
-        
-        List<DomainEvent> events;
-        if (snapshot != null)
-        {
-            // Load snapshot state (in a real implementation, you'd restore properties properly)
-            var items = ((List<object>)snapshot.State["items"])
-                .Cast<Dictionary<string, object>>()
-                .Select(i => new OrderItem(
-                    i["product_id"].ToString(),
-                    Convert.ToInt32(i["quantity"]),
-                    Convert.ToDecimal(i["price"])
-                ))
-                .ToList();
-            
-            order.Items = items;
-            order.CustomerId = snapshot.State["customer_id"].ToString();
-            order.ShippingAddress = (Dictionary<string, string>)snapshot.State["shipping_address"];
-            order.Status = snapshot.State["status"].ToString();
-            order.Version = snapshot.Version;
-            
-            // Load events since snapshot
-            events = _eventStore.GetEvents(orderId, snapshot.Version);
-        }
-        else
-        {
-            // Load all events
-            events = _eventStore.GetEvents(orderId);
-        }
-        
-        // Replay events
-        order.LoadFromHistory(events);
-        
-        return order;
-    }
-}
-
-// Usage
-var eventStore = new EventStore(publisher);
-var repository = new OrderRepository(eventStore);
-
-// Create and modify order
-var order = Order.Create("ORD-123", "CUST-456");
-order.AddItem("PROD-001", 2, 29.99m);
-order.AddItem("PROD-002", 1, 49.99m);
-order.SetShippingAddress(new Dictionary<string, string>
-{
-    ["street"] = "123 Main St",
-    ["city"] = "Boston",
-    ["state"] = "MA"
-});
-order.Submit();
-
-repository.Save(order);
-
-// Later, load order (rebuilds from events)
-var loadedOrder = repository.Get("ORD-123");
-Console.WriteLine($"Status: {loadedOrder.Status}");  // SUBMITTED
-Console.WriteLine($"Items: {loadedOrder.Items.Count}");  // 2
-```
-
-### Time Travel with Event Sourcing
-
-```csharp
-public Order GetOrderAtTimestamp(string orderId, DateTime timestamp)
-{
-    // See order state at specific point in time
-    var allEvents = _eventStore.GetEvents(orderId);
-    
-    // Filter events before timestamp
-    var historicalEvents = allEvents
-        .Where(e => e.Timestamp <= timestamp)
-        .ToList();
-    
-    // Rebuild historical state
-    var order = new Order(orderId);
-    order.LoadFromHistory(historicalEvents);
-    
-    return order;
-}
-
-// What did the order look like yesterday?
-var yesterday = DateTime.UtcNow.AddDays(-1);
-var orderYesterday = GetOrderAtTimestamp("ORD-123", yesterday);
-```
-
-## Saga Pattern
+### The Distributed Transaction Problem
 
 Sagas manage distributed transactions across multiple services.
 
@@ -1086,360 +321,96 @@ graph TB
     style Complete fill:#00b894
     style RollbackStart fill:#ff7675
 ```
+You have three microservices: Inventory, Payment, and Shipping. A customer places an order. You need to:
 
-### Choreography (Event-Driven)
+1. Reserve inventory
+2. Charge payment
+3. Schedule shipping
+
+Each step must succeed for the order to complete. If payment fails after you've reserved inventory, you need to release that inventory back.
+
+Traditional solution? A distributed transaction with two-phase commit. Reality? That doesn't scale and creates tight coupling.
+
+### The Saga Solution
+
+A **Saga** is a sequence of local transactions, where each transaction updates one service and publishes an event. If a step fails, **compensating transactions** undo the previous steps.
+
+Think of it like planning a trip:
+1. Book flight ✓
+2. Book hotel ✓
+3. Book rental car ✗ (failed!)
+4. **Compensation:** Cancel hotel
+5. **Compensation:** Cancel flight
+
+> **📚 Hands-On Guide:** For complete working examples of both Choreography and Orchestration patterns, see the [Saga Pattern Examples Guide](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/examples/06-saga/dotnet/HOW-TO-RUN.md). The guide includes:
+> - **Choreography Example**: Services coordinating autonomously via events (Order → Inventory → Payment flow)
+> - **Orchestration Example**: Central saga orchestrator managing all steps and compensations
+> - **Persistence Example**: Saga state persistence for recovery after crashes
+> 
+> Each example demonstrates compensating transactions, state tracking, and how to handle failures gracefully. You'll see the complete flow from order placement through inventory reservation, payment processing, and shipping scheduling.
+
+### Two Approaches: Choreography vs Orchestration
+**Choreography (Event-Driven):** Each service knows what to do when it sees an event. No central coordinator.
+
+```
+OrderService: Publishes "OrderPlaced"
+  ↓
+InventoryService: Hears "OrderPlaced" → Reserves items → Publishes "InventoryReserved"
+  ↓
+PaymentService: Hears "InventoryReserved" → Charges customer → Publishes "PaymentReceived"
+  ↓
+ShippingService: Hears "PaymentReceived" → Schedules delivery
+```
+
+**If payment fails:**
+```
+PaymentService: Publishes "PaymentFailed"
+  ↓
+InventoryService: Hears "PaymentFailed" → Releases inventory
+```
+
+**Pros:** Loose coupling, no single point of failure  
+**Cons:** Hard to understand the full workflow, difficult to track saga state
 
 Services react to events independently:
 
-```csharp
-// Order Service
-public class OrderService
-{
-    private readonly IOrderRepository _repository;
-    private readonly IEventPublisher _eventPublisher;
+**Orchestration (Centralized):** One orchestrator tells each service what to do.
 
-    public OrderService(IOrderRepository repository, IEventPublisher eventPublisher)
-    {
-        _repository = repository;
-        _eventPublisher = eventPublisher;
-    }
-
-    public void PlaceOrder(Order order)
-    {
-        // 1. Save order
-        _repository.Save(order);
-        
-        // 2. Publish event
-        _eventPublisher.PublishAsync("order-events", new OrderPlacedEvent(order));
-    }
-}
-
-// Inventory Service
-public class InventoryService
-{
-    private readonly IConsumer<string, string> _consumer;
-    private readonly IEventPublisher _eventPublisher;
-
-    public InventoryService(IConsumer<string, string> consumer, IEventPublisher eventPublisher)
-    {
-        _consumer = consumer;
-        _consumer.Subscribe("order-events");
-        _eventPublisher = eventPublisher;
-    }
-
-    public async Task ConsumeEventsAsync(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var result = _consumer.Consume(cancellationToken);
-            var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(result.Message.Value);
-            var eventType = eventData["type"].ToString();
-            
-            if (eventType == "OrderPlaced")
-            {
-                await HandleOrderPlacedAsync(eventData);
-            }
-            else if (eventType == "PaymentFailed")
-            {
-                await HandlePaymentFailedAsync(eventData);
-            }
-        }
-    }
-
-    private async Task HandleOrderPlacedAsync(Dictionary<string, object> eventData)
-    {
-        try
-        {
-            // Reserve inventory
-            var orderId = eventData["order_id"].ToString();
-            var items = JsonSerializer.Deserialize<List<OrderItem>>(eventData["items"].ToString());
-            await ReserveInventoryAsync(orderId, items);
-            
-            // Publish success
-            await _eventPublisher.PublishAsync("order-events", new InventoryReservedEvent(orderId));
-        }
-        catch (InsufficientInventoryException)
-        {
-            // Publish failure
-            await _eventPublisher.PublishAsync("order-events", 
-                new InventoryReservationFailedEvent(eventData["order_id"].ToString()));
-        }
-    }
-
-    private async Task HandlePaymentFailedAsync(Dictionary<string, object> eventData)
-    {
-        // Compensating transaction
-        await ReleaseInventoryAsync(eventData["order_id"].ToString());
-    }
-
-    private Task ReserveInventoryAsync(string orderId, List<OrderItem> items) => Task.CompletedTask;
-    private Task ReleaseInventoryAsync(string orderId) => Task.CompletedTask;
-}
-
-// Payment Service
-public class PaymentService
-{
-    private readonly IConsumer<string, string> _consumer;
-    private readonly IEventPublisher _eventPublisher;
-
-    public PaymentService(IConsumer<string, string> consumer, IEventPublisher eventPublisher)
-    {
-        _consumer = consumer;
-        _consumer.Subscribe("order-events");
-        _eventPublisher = eventPublisher;
-    }
-
-    public async Task ConsumeEventsAsync(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var result = _consumer.Consume(cancellationToken);
-            var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(result.Message.Value);
-            var eventType = eventData["type"].ToString();
-            
-            if (eventType == "InventoryReserved")
-            {
-                await HandleInventoryReservedAsync(eventData);
-            }
-        }
-    }
-
-    private async Task HandleInventoryReservedAsync(Dictionary<string, object> eventData)
-    {
-        try
-        {
-            // Process payment
-            var orderId = eventData["order_id"].ToString();
-            await ChargeCustomerAsync(orderId);
-            
-            // Publish success
-            await _eventPublisher.PublishAsync("order-events", new PaymentReceivedEvent(orderId));
-        }
-        catch (PaymentException)
-        {
-            // Publish failure (triggers inventory rollback)
-            await _eventPublisher.PublishAsync("order-events", 
-                new PaymentFailedEvent(eventData["order_id"].ToString()));
-        }
-    }
-
-    private Task ChargeCustomerAsync(string orderId) => Task.CompletedTask;
-}
-
-// Event records
-public record OrderPlacedEvent(Order Order);
-public record InventoryReservedEvent(string OrderId);
-public record InventoryReservationFailedEvent(string OrderId);
-public record PaymentReceivedEvent(string OrderId);
-public record PaymentFailedEvent(string OrderId);
+```
+SagaOrchestrator for Order #123:
+  Step 1: Call InventoryService.Reserve() → Success
+  Step 2: Call PaymentService.Charge() → Failed!
+  Compensation: Call InventoryService.Release()
+  Result: Saga failed, order cancelled
 ```
 
-### Orchestration (Centralized)
+**Pros:** Clear workflow, easy to track, easier to debug  
+**Cons:** Orchestrator is a single point of failure, more coupling
 
-Central orchestrator manages the saga:
+### Choosing Your Approach
 
-```csharp
-public class OrderFulfillmentSaga
-{
-    private readonly string _orderId;
-    private readonly IInventoryService _inventoryService;
-    private readonly IPaymentService _paymentService;
-    private readonly IShippingService _shippingService;
-    private readonly IEventPublisher _eventPublisher;
-    
-    private string _state = "STARTED";
-    private readonly List<Func<Task>> _compensations = new();
+**Use Choreography when:**
+- Services need to remain highly independent
+- Multiple sagas might be triggered by the same event
+- You want maximum scalability and resilience
 
-    public OrderFulfillmentSaga(
-        string orderId,
-        IInventoryService inventoryService,
-        IPaymentService paymentService,
-        IShippingService shippingService,
-        IEventPublisher eventPublisher)
-    {
-        _orderId = orderId;
-        _inventoryService = inventoryService;
-        _paymentService = paymentService;
-        _shippingService = shippingService;
-        _eventPublisher = eventPublisher;
-    }
+**Use Orchestration when:**
+- You need clear visibility into saga state
+- The workflow is complex with many steps
+- You need timeout handling and retry logic
 
-    public async Task<ShippingResult> ExecuteAsync(OrderRequest orderRequest)
-    {
-        try
-        {
-            // Step 1: Reserve Inventory
-            var inventoryResult = await _inventoryService.ReserveAsync(orderRequest.Items);
-            _compensations.Add(() => _inventoryService.ReleaseAsync(inventoryResult.ReservationId));
-            
-            // Step 2: Process Payment
-            var paymentResult = await _paymentService.ChargeAsync(
-                orderRequest.CustomerId,
-                orderRequest.Amount
-            );
-            _compensations.Add(() => _paymentService.RefundAsync(paymentResult.PaymentId));
-            
-            // Step 3: Schedule Shipping
-            var shippingResult = await _shippingService.ScheduleAsync(orderRequest.ShippingAddress);
-            // No compensation for shipping (can't un-ship)
-            
-            // Saga succeeded
-            _state = "COMPLETED";
-            await _eventPublisher.PublishAsync("order-events", new OrderFulfilledEvent(_orderId));
-            
-            return shippingResult;
-        }
-        catch (Exception ex)
-        {
-            // Saga failed - run compensations
-            await CompensateAsync();
-            _state = "FAILED";
-            await _eventPublisher.PublishAsync("order-events", 
-                new OrderFailedEvent(_orderId, ex.Message));
-            throw;
-        }
-    }
+### The Critical Detail: Saga State
 
-    private async Task CompensateAsync()
-    {
-        // Run compensating transactions in reverse order
-        for (int i = _compensations.Count - 1; i >= 0; i--)
-        {
-            try
-            {
-                await _compensations[i]();
-            }
-            catch (Exception ex)
-            {
-                // Log and continue with other compensations
-                Console.WriteLine($"Compensation failed: {ex.Message}");
-            }
-        }
-    }
-}
+Sagas aren't fire-and-forget. You need to track state:
+- Which steps completed?
+- Which compensations to run if something fails?
+- Is the saga still running or stuck?
 
-// Saga Orchestrator
-public class SagaOrchestrator
-{
-    private readonly Dictionary<string, OrderFulfillmentSaga> _activeSagas = new();
+Store saga state in a database. If your orchestrator crashes mid-saga, you can recover and continue or compensate.
 
-    public async Task<ShippingResult> StartOrderSagaAsync(OrderRequest orderRequest)
-    {
-        var saga = new OrderFulfillmentSaga(
-            orderRequest.OrderId,
-            inventoryService,
-            paymentService,
-            shippingService,
-            eventPublisher
-        );
-        
-        _activeSagas[orderRequest.OrderId] = saga;
-        
-        try
-        {
-            return await saga.ExecuteAsync(orderRequest);
-        }
-        finally
-        {
-            _activeSagas.Remove(orderRequest.OrderId);
-        }
-    }
-}
+---
 
-// Supporting types
-public record OrderRequest(string OrderId, string CustomerId, List<OrderItem> Items, 
-    decimal Amount, ShippingAddress ShippingAddress);
-public record InventoryResult(string ReservationId);
-public record PaymentResult(string PaymentId);
-public record ShippingResult(string TrackingNumber);
-public record OrderFulfilledEvent(string OrderId);
-public record OrderFailedEvent(string OrderId, string Reason);
-```
-
-### Saga State Persistence
-
-```csharp
-public enum SagaState
-{
-    Started,
-    InventoryReserved,
-    PaymentProcessed,
-    ShippingScheduled,
-    Completed,
-    Failed,
-    Compensating
-}
-
-public class PersistentSaga
-{
-    private readonly string _sagaId;
-    private readonly ISagaRepository _repository;
-    
-    public SagaState State { get; private set; }
-    public List<string> StepsCompleted { get; private set; }
-    public Dictionary<string, object> CompensationData { get; private set; }
-
-    public PersistentSaga(string sagaId, ISagaRepository repository)
-    {
-        _sagaId = sagaId;
-        _repository = repository;
-        State = SagaState.Started;
-        StepsCompleted = new List<string>();
-        CompensationData = new Dictionary<string, object>();
-    }
-
-    public void TransitionTo(SagaState newState)
-    {
-        // Persist state transition
-        State = newState;
-        _repository.UpdateSaga(_sagaId, new SagaData
-        {
-            State = newState.ToString(),
-            StepsCompleted = StepsCompleted,
-            CompensationData = CompensationData
-        });
-    }
-
-    public void RecordStep(string stepName, object data)
-    {
-        // Record completed step
-        StepsCompleted.Add(stepName);
-        CompensationData[stepName] = data;
-        _repository.UpdateSaga(_sagaId, new SagaData
-        {
-            State = State.ToString(),
-            StepsCompleted = StepsCompleted,
-            CompensationData = CompensationData
-        });
-    }
-
-    public static PersistentSaga Recover(string sagaId, ISagaRepository repository)
-    {
-        // Recover saga from database
-        var sagaData = repository.GetSaga(sagaId);
-        var saga = new PersistentSaga(sagaId, repository);
-        saga.State = Enum.Parse<SagaState>(sagaData.State);
-        saga.StepsCompleted = sagaData.StepsCompleted;
-        saga.CompensationData = sagaData.CompensationData;
-        return saga;
-    }
-}
-
-public class SagaData
-{
-    public string State { get; set; }
-    public List<string> StepsCompleted { get; set; }
-    public Dictionary<string, object> CompensationData { get; set; }
-}
-
-public interface ISagaRepository
-{
-    SagaData GetSaga(string sagaId);
-    void UpdateSaga(string sagaId, SagaData data);
-}
-```
-
-## Outbox Pattern
+## Outbox Pattern: Atomic Database + Events
 
 Problem: How to atomically update database AND publish event?
 
@@ -1466,320 +437,142 @@ sequenceDiagram
     
     Note over Service,Kafka: Atomic database + event!
 ```
+### The Dual-Write Problem
 
-### Implementation
+You need to do two things atomically:
+1. Save an order to the database
+2. Publish "OrderPlaced" event to Kafka
 
-```csharp
-using Microsoft.EntityFrameworkCore;
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
-
-[Table("outbox")]
-public class OutboxEvent
-{
-    [Key]
-    [Column("event_id")]
-    public string EventId { get; set; }
-    
-    [Required]
-    [Column("aggregate_type")]
-    public string AggregateType { get; set; }
-    
-    [Required]
-    [Column("aggregate_id")]
-    public string AggregateId { get; set; }
-    
-    [Required]
-    [Column("event_type")]
-    public string EventType { get; set; }
-    
-    [Required]
-    [Column("payload")]
-    public string Payload { get; set; }
-    
-    [Column("created_at")]
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    
-    [Column("published")]
-    public bool Published { get; set; } = false;
-    
-    [Column("published_at")]
-    public DateTime? PublishedAt { get; set; }
-}
-
-// Order Service with Outbox
-public class OrderService
-{
-    private readonly ApplicationDbContext _context;
-
-    public OrderService(ApplicationDbContext context)
-    {
-        _context = context;
-    }
-
-    public async Task<string> PlaceOrderAsync(OrderData orderData)
-    {
-        using var transaction = await _context.Database.BeginTransactionAsync();
-        try
-        {
-            // 1. Save order to database
-            var order = new Order
-            {
-                OrderId = Guid.NewGuid().ToString(),
-                CustomerId = orderData.CustomerId,
-                TotalAmount = orderData.TotalAmount
-            };
-            _context.Orders.Add(order);
-            
-            // 2. Save event to outbox (same transaction!)
-            var outboxEvent = new OutboxEvent
-            {
-                EventId = Guid.NewGuid().ToString(),
-                AggregateType = "Order",
-                AggregateId = order.OrderId,
-                EventType = "OrderPlaced",
-                Payload = JsonSerializer.Serialize(new
-                {
-                    order_id = order.OrderId,
-                    customer_id = order.CustomerId,
-                    total_amount = order.TotalAmount
-                })
-            };
-            _context.Set<OutboxEvent>().Add(outboxEvent);
-            
-            // 3. Commit transaction (atomic!)
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-            
-            return order.OrderId;
-        }
-        catch
-        {
-            await transaction.RollbackAsync();
-            throw;
-        }
-    }
-}
-
-// Outbox Publisher (separate process)
-public class OutboxPublisher : BackgroundService
-{
-    private readonly IServiceProvider _serviceProvider;
-    private readonly IProducer<string, string> _producer;
-
-    public OutboxPublisher(IServiceProvider serviceProvider, IProducer<string, string> producer)
-    {
-        _serviceProvider = serviceProvider;
-        _producer = producer;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                using var scope = _serviceProvider.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                
-                // Get unpublished events
-                var events = await context.Set<OutboxEvent>()
-                    .Where(e => !e.Published)
-                    .OrderBy(e => e.CreatedAt)
-                    .Take(100)
-                    .ToListAsync(stoppingToken);
-                
-                foreach (var evt in events)
-                {
-                    await PublishEventAsync(context, evt, stoppingToken);
-                }
-                
-                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
-            }
-            catch (Exception ex)
-            {
-                // Log error and continue
-                Console.WriteLine($"Error publishing events: {ex.Message}");
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-            }
-        }
-    }
-
-    private async Task PublishEventAsync(ApplicationDbContext context, OutboxEvent evt, CancellationToken cancellationToken)
-    {
-        try
-        {
-            // Publish to Kafka
-            await _producer.ProduceAsync(
-                "orders",
-                new Message<string, string>
-                {
-                    Key = evt.AggregateId,
-                    Value = evt.Payload
-                },
-                cancellationToken
-            );
-            
-            // Mark as published
-            evt.Published = true;
-            evt.PublishedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync(cancellationToken);
-            
-            Console.WriteLine($"Published event {evt.EventId}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to publish {evt.EventId}: {ex.Message}");
-            throw;
-        }
-    }
-}
+**The naive approach:**
+```
+db.Save(order);
+kafka.Publish("OrderPlaced", order);
 ```
 
-## Inbox Pattern (Idempotent Consumer)
+**What goes wrong:**
+- Database succeeds, Kafka fails → Event is lost, other services never see the order
+- Kafka succeeds, database fails → Event published for an order that doesn't exist
+
+You can't use a database transaction to cover both—Kafka isn't transactional.
+
+### The Outbox Solution
+
+**Use your database to remember what to publish.**
+
+1. **In a single database transaction:**
+   - Save the order to the `orders` table
+   - Save the event to the `outbox` table
+
+2. **A separate process (Outbox Publisher):**
+   - Polls the outbox table
+   - Publishes unpublished events to Kafka
+   - Marks them as published
+
+**Now it's atomic:** Either both the order and outbox event are saved, or neither is. Even if Kafka is down, the event sits safely in your outbox until you can publish it.
+
+### Why This Works
+
+The outbox table is in your database, so it participates in your database transaction. Publishing to Kafka happens outside the transaction, which is fine—if it fails, the event remains in the outbox for retry.
+
+**Bonus:** The outbox pattern naturally provides event ordering and retry logic.
+
+---
+
+
+## Inbox Pattern (Idempotent Consumer) read: Exactly-Once Processing
 
 Problem: Ensure each event is processed exactly once.
 
-```csharp
-[Table("inbox")]
-public class InboxEvent
-{
-    [Key]
-    [Column("event_id")]
-    public string EventId { get; set; }
-    
-    [Column("received_at")]
-    public DateTime ReceivedAt { get; set; } = DateTime.UtcNow;
-    
-    [Column("processed_at")]
-    public DateTime? ProcessedAt { get; set; }
-}
+### The Duplicate Event Problem
 
-public class IdempotentConsumer
-{
-    private readonly ApplicationDbContext _context;
+You're consuming events from Kafka. Your consumer processes "OrderPlaced", updates inventory, then crashes before committing the Kafka offset.
 
-    public IdempotentConsumer(ApplicationDbContext context)
-    {
-        _context = context;
-    }
+Kafka redelivers the event. Now you've updated inventory twice for one order.
 
-    public async Task ProcessEventAsync(Dictionary<string, object> eventData)
-    {
-        var eventId = eventData["event_id"].ToString();
-        
-        using var transaction = await _context.Database.BeginTransactionAsync();
-        try
-        {
-            // Check if already processed
-            var inbox = await _context.Set<InboxEvent>()
-                .FirstOrDefaultAsync(e => e.EventId == eventId);
-            
-            if (inbox != null && inbox.ProcessedAt.HasValue)
-            {
-                Console.WriteLine($"Event {eventId} already processed");
-                await transaction.CommitAsync();
-                return;
-            }
-            
-            // Process event
-            await DoBusinessLogicAsync(eventData);
-            
-            // Record as processed
-            if (inbox == null)
-            {
-                inbox = new InboxEvent { EventId = eventId };
-                _context.Set<InboxEvent>().Add(inbox);
-            }
-            
-            inbox.ProcessedAt = DateTime.UtcNow;
-            
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-        }
-        catch
-        {
-            await transaction.RollbackAsync();
-            throw;
-        }
-    }
+### The Inbox Solution
 
-    private Task DoBusinessLogicAsync(Dictionary<string, object> eventData)
-    {
-        // Business logic implementation
-        return Task.CompletedTask;
-    }
-}
+**Track which events you've processed in your database.**
+
+```
+In a single database transaction:
+  1. Check inbox table: Have we processed event #xyz?
+  2. If yes → Skip
+  3. If no → Process the event
+  4. Save event ID to inbox table
 ```
 
-## Complete E-Commerce System
+Even if Kafka redelivers the event a hundred times, you process it exactly once.
 
-Putting it all together:
+### Why This Works
 
-```csharp
-// Architecture combining all patterns
+The inbox check and your business logic are in the same database transaction. Either both happen or neither happens.
 
-// 1. CQRS: Separate read/write
-// 2. Event Sourcing: Orders stored as events
-// 3. Saga: Order fulfillment workflow
-// 4. Outbox: Atomic writes + events
-// 5. Inbox: Idempotent consumers
+**Combined with Outbox:** You get end-to-end exactly-once processing:
+- Producer uses Outbox → Guarantees each event is published at least once
+- Consumer uses Inbox → Guarantees each event is processed at most once
+- Result: Exactly-once semantics across systems
 
-public class ECommerceSystem
-{
-    // Write side (CQRS)
-    public OrderCommandHandler CommandHandler { get; }
-    public EventStore EventStore { get; }
-    public OrderRepository Repository { get; }
-    
-    // Read side (CQRS)
-    public OrderQueryService QueryService { get; }
-    public List<IProjection> Projections { get; }
-    
-    // Saga orchestrator
-    public SagaOrchestrator SagaOrchestrator { get; }
-    
-    // Outbox/Inbox
-    public OutboxPublisher OutboxPublisher { get; }
-    public IdempotentConsumer InboxConsumer { get; }
+---
 
-    public ECommerceSystem(
-        OrderCommandHandler commandHandler,
-        EventStore eventStore,
-        OrderRepository repository,
-        OrderQueryService queryService,
-        List<IProjection> projections,
-        SagaOrchestrator sagaOrchestrator,
-        OutboxPublisher outboxPublisher,
-        IdempotentConsumer inboxConsumer)
-    {
-        CommandHandler = commandHandler;
-        EventStore = eventStore;
-        Repository = repository;
-        QueryService = queryService;
-        Projections = projections;
-        SagaOrchestrator = sagaOrchestrator;
-        OutboxPublisher = outboxPublisher;
-        InboxConsumer = inboxConsumer;
-    }
-}
-```
+## Putting It All Together: E-Commerce System
+
+Here's how these patterns work together in a real system:
+
+**Order Service (Write Side):**
+- Uses **Event Sourcing** to track order history as events
+- Uses **Outbox Pattern** to atomically save events and publish to Kafka
+- Handles commands: PlaceOrder, CancelOrder, UpdateOrder
+
+**Read Services (Query Side via CQRS):**
+- **Order List Projection:** Builds a denormalized view of all orders for customer dashboard
+- **Analytics Projection:** Maintains daily/weekly sales totals
+- **Search Projection:** Keeps Elasticsearch index up-to-date for admin search
+- All use **Inbox Pattern** to ensure exactly-once processing
+
+**Order Fulfillment Saga:**
+- Coordinates Inventory, Payment, and Shipping services
+- Uses **Orchestration** for visibility and control
+- Persists saga state for recovery after failures
+- Implements compensating transactions for rollback
+
+**The Flow:**
+
+1. Customer clicks "Place Order"
+2. Order Service saves event to outbox, returns confirmation
+3. Outbox Publisher sends "OrderPlaced" to Kafka
+4. Saga Orchestrator starts order fulfillment workflow
+5. Read projections update their views (eventual consistency)
+6. Each service uses Inbox to ensure exactly-once processing
+
+**The Result:** A resilient, scalable system where:
+- No event is lost (Outbox)
+- No event is processed twice (Inbox)
+- Complete audit trail (Event Sourcing)
+- Optimized reads (CQRS)
+- Distributed transactions work (Saga)
+
+---
 
 ## Key Takeaways
 
-✅ **CQRS** - Separate models for optimal read/write performance  
-✅ **Event Sourcing** - Complete audit trail and time travel  
-✅ **Sagas** - Manage distributed transactions reliably  
-✅ **Outbox** - Atomic database + event publishing  
-✅ **Inbox** - Exactly-once event processing  
+✅ **CQRS** separates models for optimal read/write performance—use when you have complex queries or need independent scaling
+✅ **Event Sourcing** stores history as events, enabling time travel and flexible model evolution—use for audit-heavy or complex domains
+✅ **Sagas** manage distributed transactions with compensating actions—use Choreography for loose coupling, Orchestration for control
+✅ **Outbox Pattern** guarantees atomic database writes and event publishing—use whenever you publish events
+✅ **Inbox Pattern** ensures exactly-once event processing—use in all consumers handling critical business logic
+
+These aren't just academic patterns. They're battle-tested solutions to real problems in distributed systems. Understanding when and how to apply them separates production-ready systems from prototypes.
+
+---
 
 ## Next Steps
 
-In [Part 7](part-07-production-operations), we'll cover production operations:
-- Monitoring and alerting
-- Debugging distributed systems
-- Testing strategies
-- Deployment patterns
-- Incident response
+In [Part 7](part-07-production-operations),  we tackle the hardest part: running these systems reliably in production.
+- Monitoring distributed systems
+- Debugging when things go wrong
+- Testing strategies for complex workflows
+- Deployment patterns that minimize risk
+- Incident response and recovery
 
-You now have the patterns for production systems! 🚀
+You now have the patterns. Next, we learn to operate them. 🚀
+

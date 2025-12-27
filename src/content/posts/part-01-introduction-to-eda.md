@@ -94,6 +94,8 @@ An event is a record of something that happened in your system. Think of it as a
 
 **Self-contained** - Events carry all the information needed to understand what happened, so consumers don't need to make additional calls to get context.
 
+> 💡 **Deeper Dive:** For a more philosophical exploration of events as the foundation of system design, see [A Paradigm Shift: Events Before Models](/blog/part-06-advanced-patterns#a-paradigm-shift-events-before-models) in Part 6, where we discuss events as the primary source of truth and models as derived constructs.
+
 ### Events vs. Messages vs. Commands
 
 It's important to distinguish between different types of messages in distributed systems:
