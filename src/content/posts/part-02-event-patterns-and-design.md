@@ -50,79 +50,16 @@ sequenceDiagram
     EmailService->>EmailService: Send Email
 ```
 
-**Implementation:**
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```csharp
-using System;
-using System.Collections.Generic;
-// Producer - Minimal event
-public class OrderService
-{
-    private IDatabase db;
-    private IEventPublisher eventPublisher;
+**The simplest pattern.** An event announces that something happened, with minimal data. Think of it as a ping: "Hey, something interesting just occurred!" Consumers that need more information fetch it via API.
 
-    public OrderService(IDatabase database, IEventPublisher publisher)
-    {
-        db = database;
-        eventPublisher = publisher;
-    }
+**How it works:**
+1. A service publishes a lightweight event containing just an ID and event type
+2. Interested consumers receive the notification
+3. If a consumer needs details, it calls back to the source service's API
 
-    public void PlaceOrder(Order order)
-    {
-        // Save order to database
-        db.Save(order);
+**Example:** When an order is placed, the event just says "OrderPlaced with ID: ORD-123". An email service receives this, then fetches full order details from the Order API to send a confirmation email.
 
-        // Publish lightweight event
-        var eventPayload = new Dictionary<string, object>
-        {
-            ["eventType"] = "OrderPlaced",
-            ["eventId"] = Guid.NewGuid().ToString(),
-            ["timestamp"] = DateTime.UtcNow.ToString("o"),
-            ["data"] = new Dictionary<string, object>
-            {
-                ["orderId"] = order.Id,
-                ["customerId"] = order.CustomerId
-                // Minimal data - just identifiers
-            }
-        };
-
-        eventPublisher.Publish("orders", eventPayload);
-    }
-}
-// Consumer - Fetches full details
-public class EmailService
-{
-    private IOrderApiClient orderApiClient;
-
-    public EmailService(IOrderApiClient apiClient)
-    {
-        orderApiClient = apiClient;
-    }
-
-    public void HandleOrderPlaced(Dictionary<string, object> eventPayload)
-    {
-        var data = (Dictionary<string, object>)eventPayload["data"];
-        string orderId = data["orderId"].ToString();
-
-        // Fetch full order details via API
-        var orderDetails = orderApiClient.GetOrder(orderId);
-
-        // Now send email with full details
-        SendConfirmationEmail(
-            to: orderDetails["customerEmail"].ToString(),
-            order: orderDetails
-        );
-    }
-
-    private void SendConfirmationEmail(string to, Dictionary<string, object> order)
-    {
-        // Implementation to send email
-    }
-}
-
-// Supporting interface and class definitions are assumed here
-// such as IDatabase, IEventPublisher, IOrderApiClient, and Order class.
-```
+> 💡 **Working Example:** A complete implementation of this pattern can be found in the [kafka-event-driven-architecture repository](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/examples/01-fundamentals/HOW-TO-RUN.md).
 
 **Pros:**
 - ✅ Lightweight events (low network overhead)
@@ -143,6 +80,7 @@ public class EmailService
 - Source service has good uptime SLA
 
 **Real-world example:**
+GitHub webhooks work this way. You get a notification that a pull request was opened with just the PR ID, then you fetch the full details via GitHub's API if needed.
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // GitHub webhook - minimal notification
@@ -188,192 +126,17 @@ sequenceDiagram
     
     Note over EmailService,AnalyticsService: All process independently<br/>with full context
 ```
+**The most common pattern in modern event-driven systems.** The event carries all the data consumers need, eliminating additional API calls. It's like sending a complete package rather than just a tracking number.
 
-**Implementation:**
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```csharp
-using System;
-using System.Collections.Generic;
-using System.Linq;
+**How it works:**
+1. A service publishes an event with full contextual data
+2. Consumers receive everything they need to act immediately
+3. No additional API calls required
+4. Multiple consumers can process independently and in parallel
 
-// Producer - Full data in event
-public class OrderService
-{
-    private IDatabase _db;
-    private IEventPublisher _eventPublisher;
+**Example:** When an order is placed, the event includes order ID, customer details, items purchased, shipping address, payment info - everything needed. The email service can immediately send a confirmation, the inventory service can update stock, and the analytics service can record metrics - all without calling back to the Order service.
 
-    public OrderService(IDatabase db, IEventPublisher eventPublisher)
-    {
-        _db = db;
-        _eventPublisher = eventPublisher;
-    }
-
-    public void PlaceOrder(Order order)
-    {
-        // Save order to database
-        _db.Save(order);
-        
-        // Publish event with ALL necessary data
-        var eventObj = new
-        {
-            eventType = "OrderPlaced",
-            eventId = Guid.NewGuid().ToString(),
-            eventVersion = "1.0",
-            timestamp = DateTime.UtcNow.ToString("o"),
-            source = "order-service",
-            correlationId = Guid.NewGuid().ToString(),
-            data = new
-            {
-                // Identifiers
-                orderId = order.Id,
-                customerId = order.CustomerId,
-                
-                // Customer info (denormalized)
-                customer = new
-                {
-                    id = order.Customer.Id,
-                    email = order.Customer.Email,
-                    name = order.Customer.Name,
-                    phone = order.Customer.Phone
-                },
-                
-                // Order details
-                orderDate = order.CreatedAt.ToString("o"),
-                totalAmount = (double)order.TotalAmount,
-                currency = order.Currency,
-                status = order.Status,
-                
-                // Line items (complete info)
-                items = order.Items.Select(item => new
-                {
-                    productId = item.ProductId,
-                    productName = item.ProductName,
-                    productSku = item.ProductSku,
-                    quantity = item.Quantity,
-                    unitPrice = (double)item.UnitPrice,
-                    totalPrice = (double)item.TotalPrice,
-                    imageUrl = item.ProductImageUrl
-                }).ToArray(),
-                
-                // Shipping info
-                shippingAddress = new
-                {
-                    street = order.ShippingAddress.Street,
-                    city = order.ShippingAddress.City,
-                    state = order.ShippingAddress.State,
-                    postalCode = order.ShippingAddress.PostalCode,
-                    country = order.ShippingAddress.Country
-                },
-                
-                // Payment info (safe subset)
-                payment = new
-                {
-                    method = order.PaymentMethod,
-                    last4 = order.PaymentLast4,
-                    status = "completed"
-                }
-            }
-        };
-        
-        _eventPublisher.Publish("orders", eventObj);
-    }
-}
-
-// Consumer - Fully autonomous
-public class EmailService
-{
-    public void HandleOrderPlaced(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        var orderData = data;
-        
-        // All data is in the event - NO API call needed!
-        var emailContent = RenderEmailTemplate(
-            template: "order_confirmation",
-            customerName: ((Dictionary<string, object>)orderData["customer"])["name"].ToString(),
-            orderId: orderData["orderId"].ToString(),
-            items: (List<object>)orderData["items"],
-            total: (double)orderData["totalAmount"],
-            shippingAddress: (Dictionary<string, object>)orderData["shippingAddress"]
-        );
-        
-        SendEmail(
-            to: ((Dictionary<string, object>)orderData["customer"])["email"].ToString(),
-            subject: $"Order Confirmation - {orderData["orderId"]}",
-            content: emailContent
-        );
-        
-        // Service is fully autonomous!
-    }
-    
-    private string RenderEmailTemplate(string template, string customerName, string orderId, List<object> items, double total, Dictionary<string, object> shippingAddress)
-    {
-        // Email template rendering logic
-        return "";
-    }
-    
-    private void SendEmail(string to, string subject, string content)
-    {
-        // Email sending logic
-    }
-}
-
-public class InventoryService
-{
-    public void HandleOrderPlaced(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        var orderData = data;
-        var items = (List<object>)orderData["items"];
-        
-        // Reduce stock for each item - all data is here
-        foreach (var itemObj in items)
-        {
-            var item = (Dictionary<string, object>)itemObj;
-            ReduceStock(
-                productId: item["productId"].ToString(),
-                quantity: (int)item["quantity"],
-                orderId: orderData["orderId"].ToString()
-            );
-        }
-        
-        Console.WriteLine($"✅ Inventory updated for order {orderData["orderId"]}");
-    }
-    
-    private void ReduceStock(string productId, int quantity, string orderId)
-    {
-        // Inventory reduction logic
-    }
-}
-
-public class AnalyticsService
-{
-    public void HandleOrderPlaced(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        var orderData = data;
-        var items = (List<object>)orderData["items"];
-        
-        // Record comprehensive analytics - all data available
-        RecordMetrics(new
-        {
-            event_type = "order_placed",
-            order_id = orderData["orderId"].ToString(),
-            customer_id = orderData["customerId"].ToString(),
-            amount = (double)orderData["totalAmount"],
-            currency = orderData["currency"].ToString(),
-            item_count = items.Count,
-            country = ((Dictionary<string, object>)orderData["shippingAddress"])["country"].ToString(),
-            timestamp = eventObj["timestamp"].ToString()
-        });
-    }
-    
-    private void RecordMetrics(object metrics)
-    {
-        // Metrics recording logic
-    }
-}
-```
+> 💡 **Working Example:** A complete implementation of the Event-Carried State Transfer pattern can be found in the [kafka-event-driven-architecture repository](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/examples/02-core-concepts/dotnet/event-carried-state-trf/HOW-TO-RUN.md). The example demonstrates how multiple services (Email, Inventory, and Analytics) process events autonomously with all necessary data included in the event payload.
 
 **Pros:**
 - ✅ Consumers are fully autonomous (no external dependencies)
@@ -409,60 +172,21 @@ var eventSizeBytes = Encoding.UTF8.GetByteCount(eventJson);
 
 Console.WriteLine($"Event size: {eventSizeBytes / 1024.0:F2} KB");
 
-// Rule of thumb:
-// < 10 KB: Perfect for event-carried state transfer
-// 10-100 KB: Acceptable, consider compression
-// > 100 KB: Consider event notification + API call
-// > 1 MB: Definitely use event notification or store in S3/blob storage
 ```
 
-**Handling large data:**
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```csharp
-// For very large data (images, documents)
-var eventObj = new
-{
-    eventType = "DocumentUploaded",
-    data = new
-    {
-        documentId = "doc-123",
-        documentUrl = "s3://bucket/documents/doc-123.pdf", // Reference, not content
-        documentSize = 5242880, // 5 MB
-        mimeType = "application/pdf",
-        metadata = new
-        {
-            filename = "contract.pdf",
-            uploadedBy = "user-456"
-        }
-    }
-};
+**Size considerations:**
+* **< 10 KB:** Perfect for event-carried state transfer
+* **10-100 KB:** Acceptable, consider compression
+* **> 100 KB:** Consider event notification + API call
+* **> 1 MB:** Definitely use event notification or store in S3/blob storage
 
-// Consumers download from S3 if needed
-public class DocumentProcessorService
-{
-    public void HandleDocumentUploaded(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        var docUrl = data["documentUrl"].ToString();
-        
-        // Download only if needed
-        if (data["mimeType"].ToString() == "application/pdf")
-        {
-            var docContent = _s3Client.Download(docUrl);
-            ProcessPdf(docContent);
-        }
-    }
-    
-    private void ProcessPdf(byte[] content)
-    {
-        // PDF processing logic
-    }
-}
-```
+**Handling large data:** For very large data like images or documents, include a reference URL (e.g., S3 link) in the event rather than the actual content. Consumers can download from the external storage only if needed.
+
+---
 
 ### Pattern 3: Event Sourcing
 
-Instead of storing current state, you store every event that ever happened. Current state is derived by replaying events. This is the most advanced pattern.
+**The most advanced pattern.** Instead of storing current state, you store every event that ever happened. Current state is derived by replaying events. Think of it as keeping a complete ledger of all transactions rather than just the current account balance.
 
 ```mermaid
 graph TB
@@ -483,270 +207,29 @@ graph TB
     style A2 fill:#ff7675
     style B5 fill:#00b894
 ```
+**How it works:**
+1. Every state change is captured as an immutable event
+2. Events are stored in an append-only log (Event Store)
+3. Current state is rebuilt by replaying all events from the beginning
+4. You can see what the state was at any point in history
 
-**Traditional vs. Event Sourcing:**
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```csharp
-using System;
-using System.Collections.Generic;
-using System.Linq;
+**Example:** For a bank account, instead of storing just the current balance, you store every transaction: AccountOpened, MoneyDeposited, MoneyWithdrawn, InterestCredited. To know the current balance, you replay all these events. To know the balance last month, you replay events up to that date.
 
-// === TRADITIONAL APPROACH ===
-public class OrderRepository
-{
-    public void UpdateOrder(string orderId, Dictionary<string, object> updates)
-    {
-        // Current state is overwritten
-        _db.Update("orders", new { id = orderId }, updates);
-        // History is lost!
-    }
-}
+**The key concepts:**
 
-// Database state:
-// orders table: {id: 'ORD-123', status: 'SHIPPED', total: 99.99}
-// We don't know:
-// - When was it created?
-// - What was the original total?
-// - When did status change?
-// - Who changed it?
+**Commands produce events:**
+- `CreateOrder()` → produces `OrderCreated` event
+- `AddItem()` → produces `ItemAdded` event
+- `Submit()` → produces `OrderSubmitted` event
 
-// === EVENT SOURCING APPROACH ===
-public class Order
-{
-    public string Id { get; set; }
-    public string CustomerId { get; set; }
-    public List<OrderItem> Items { get; set; } = new List<OrderItem>();
-    public ShippingAddress ShippingAddress { get; set; }
-    public string Status { get; set; }
-    public List<object> UncommittedEvents { get; set; } = new List<object>();
-    
-    // Commands that produce events
-    public void Create(string orderId, string customerId)
-    {
-        var @event = new OrderCreated
-        {
-            OrderId = orderId,
-            CustomerId = customerId,
-            Timestamp = DateTime.UtcNow
-        };
-        Apply(@event);
-        UncommittedEvents.Add(@event);
-    }
-    
-    public void AddItem(string productId, int quantity, decimal price)
-    {
-        var @event = new ItemAdded
-        {
-            OrderId = Id,
-            ProductId = productId,
-            Quantity = quantity,
-            Price = price,
-            Timestamp = DateTime.UtcNow
-        };
-        Apply(@event);
-        UncommittedEvents.Add(@event);
-    }
-    
-    public void SetShippingAddress(ShippingAddress address)
-    {
-        var @event = new ShippingAddressSet
-        {
-            OrderId = Id,
-            Address = address,
-            Timestamp = DateTime.UtcNow
-        };
-        Apply(@event);
-        UncommittedEvents.Add(@event);
-    }
-    
-    public void Submit()
-    {
-        if (Items.Count == 0)
-            throw new InvalidOperationException("Cannot submit order without items");
-        if (ShippingAddress == null)
-            throw new InvalidOperationException("Cannot submit order without shipping address");
-        
-        var @event = new OrderSubmitted
-        {
-            OrderId = Id,
-            Timestamp = DateTime.UtcNow
-        };
-        Apply(@event);
-        UncommittedEvents.Add(@event);
-    }
-    
-    // Apply events to rebuild state
-    public void Apply(object @event)
-    {
-        switch (@event)
-        {
-            case OrderCreated created:
-                Id = created.OrderId;
-                CustomerId = created.CustomerId;
-                Status = "CREATED";
-                break;
-            
-            case ItemAdded itemAdded:
-                Items.Add(new OrderItem
-                {
-                    ProductId = itemAdded.ProductId,
-                    Quantity = itemAdded.Quantity,
-                    Price = itemAdded.Price
-                });
-                break;
-            
-            case ShippingAddressSet addressSet:
-                ShippingAddress = addressSet.Address;
-                break;
-            
-            case OrderSubmitted submitted:
-                Status = "SUBMITTED";
-                break;
-        }
-    }
-}
+**Events rebuild state:**
+When you need to work with an order, you load all its events from the Event Store and replay them to reconstruct the current state. Each event modifies the state in memory.
 
-// Event Store
-public class EventStore
-{
-    private Dictionary<string, List<object>> _events = new Dictionary<string, List<object>>();
-    private IEventBus _eventBus;
-    
-    public EventStore(IEventBus eventBus)
-    {
-        _eventBus = eventBus;
-    }
-    
-    public void SaveEvents(string aggregateId, List<object> events, int? expectedVersion = null)
-    {
-        // Optimistic locking
-        if (expectedVersion.HasValue)
-        {
-            var currentVersion = _events.ContainsKey(aggregateId) ? _events[aggregateId].Count : 0;
-            if (currentVersion != expectedVersion.Value)
-                throw new InvalidOperationException("Version mismatch");
-        }
-        
-        if (!_events.ContainsKey(aggregateId))
-            _events[aggregateId] = new List<object>();
-        
-        // Append events (never update)
-        _events[aggregateId].AddRange(events);
-        
-        // Publish to event bus
-        foreach (var @event in events)
-            _eventBus.Publish(@event);
-    }
-    
-    public List<object> GetEvents(string aggregateId, int fromVersion = 0)
-    {
-        if (!_events.ContainsKey(aggregateId))
-            return new List<object>();
-        
-        return _events[aggregateId].Skip(fromVersion).ToList();
-    }
-}
+**Time travel:**
+Want to know what an order looked like yesterday? Just replay events up to yesterday's timestamp. This is impossible with traditional databases where you only store current state.
 
-// Repository
-public class OrderRepository
-{
-    private EventStore _eventStore;
-    
-    public OrderRepository(EventStore eventStore)
-    {
-        _eventStore = eventStore;
-    }
-    
-    public void Save(Order order, int? expectedVersion = null)
-    {
-        _eventStore.SaveEvents(
-            order.Id,
-            order.UncommittedEvents,
-            expectedVersion
-        );
-        order.UncommittedEvents = new List<object>();
-    }
-    
-    public Order Get(string orderId)
-    {
-        // Rebuild order by replaying events
-        var events = _eventStore.GetEvents(orderId);
-        
-        var order = new Order();
-        foreach (var @event in events)
-            order.Apply(@event);
-        
-        return order;
-    }
-}
-
-// Using it
-var order = new Order();
-order.Create("ORD-123", "CUST-456");
-order.AddItem("PROD-001", 2, 29.99m);
-order.AddItem("PROD-002", 1, 49.99m);
-order.SetShippingAddress(new ShippingAddress
-{
-    Street = "123 Main St",
-    City = "Boston",
-    State = "MA",
-    Zip = "02101"
-});
-order.Submit();
-
-repository.Save(order);
-
-// Event store now contains:
-// Event 1: OrderCreated(orderId: 'ORD-123', customerId: 'CUST-456')
-// Event 2: ItemAdded(productId: 'PROD-001', quantity: 2, price: 29.99)
-// Event 3: ItemAdded(productId: 'PROD-002', quantity: 1, price: 49.99)
-// Event 4: ShippingAddressSet(address: {...})
-// Event 5: OrderSubmitted(orderId: 'ORD-123')
-
-// Later, retrieve the order
-order = repository.Get("ORD-123"); // Replays all 5 events
-Console.WriteLine(order.Status); // 'SUBMITTED'
-Console.WriteLine(order.Items.Count); // 2
-```
-
-**Time Travel - See State at Any Point:**
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```csharp
-public Order GetOrderAtTimestamp(string orderId, DateTime timestamp)
-{
-    var events = _eventStore.GetEvents(orderId);
-    
-    // Filter events before timestamp
-    var historicalEvents = events
-        .Where(e => GetEventTimestamp(e) <= timestamp)
-        .ToList();
-    
-    // Replay to get historical state
-    var order = new Order();
-    foreach (var @event in historicalEvents)
-        order.Apply(@event);
-    
-    return order;
-}
-
-private DateTime GetEventTimestamp(object @event)
-{
-    // Extract timestamp from event based on event type
-    return @event switch
-    {
-        OrderCreated created => created.Timestamp,
-        ItemAdded added => added.Timestamp,
-        ShippingAddressSet addressSet => addressSet.Timestamp,
-        OrderSubmitted submitted => submitted.Timestamp,
-        _ => DateTime.MinValue
-    };
-}
-
-// What did the order look like yesterday?
-var orderYesterday = GetOrderAtTimestamp("ORD-123", yesterday);
-```
-
-**Snapshots for Performance:**
+**Performance optimization with snapshots:**
+Instead of replaying thousands of events every time, you can create snapshots. A snapshot is like a saved game - you store the state at event 1000, then only need to replay events 1001-2000 to get current state. This dramatically improves performance for long-lived entities.
 
 ```mermaid
 graph LR
@@ -763,56 +246,7 @@ graph LR
     style B fill:#00b894
     style D fill:#00b894
 ```
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```csharp
-public class EventStore
-{
-    private Dictionary<string, Snapshot> _snapshots = new Dictionary<string, Snapshot>();
-    
-    public void SaveSnapshot(string aggregateId, object state, int version)
-    {
-        _snapshots[aggregateId] = new Snapshot
-        {
-            State = state,
-            Version = version,
-            Timestamp = DateTime.UtcNow
-        };
-    }
-    
-    public Order LoadFromSnapshot(string aggregateId)
-    {
-        if (_snapshots.TryGetValue(aggregateId, out var snapshot))
-        {
-            var order = new Order();
-            // Restore state from snapshot (simplified)
-            // In real implementation, you'd deserialize the state
-            // order = JsonSerializer.Deserialize<Order>(snapshot.State);
-            
-            // Load events after snapshot
-            var events = GetEvents(aggregateId, fromVersion: snapshot.Version);
-            foreach (var @event in events)
-                order.Apply(@event);
-            
-            return order;
-        }
-        else
-        {
-            // No snapshot, replay all events
-            return LoadFromEvents(aggregateId);
-        }
-    }
-}
-
-// Save snapshot every 100 events
-if (events.Count % 100 == 0)
-{
-    eventStore.SaveSnapshot(
-        order.Id,
-        order, // In practice, serialize to JSON/bytes
-        version: events.Count
-    );
-}
-```
+**For a complete working example of Event Sourcing in C#, check out the [Event Sourcing example](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/06-event-sourcing/dotnet) in my GitHub repository.**
 
 **Pros:**
 - ✅ Complete audit trail (compliance, debugging)
@@ -837,6 +271,8 @@ if (events.Count % 100 == 0)
 - Domain is naturally event-driven (banking transactions, medical records)
 
 **Real-world examples:**
+- **Banking:** Every transaction (deposit, withdrawal, interest) is an event. Current balance is derived by replaying all transactions. Complete audit trail for regulatory compliance.
+- **Medical records:** Patient admissions, prescriptions, lab tests, and discharges are all events. Complete medical history preserved for HIPAA compliance and medical research.
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // Banking - Perfect for event sourcing
@@ -977,6 +413,28 @@ var eventObj = new { eventType = "OrderPlaced", orderId = "ORD-123", /* ... */ }
 
 ### Principle 3: Include Essential Metadata
 
+Every event should include metadata that helps with debugging, tracing, and versioning:
+
+**Identity:**
+- `eventId`: Unique ID for deduplication
+- `eventType`: What happened
+- `eventVersion`: Schema version
+
+**Timing:**
+- `timestamp`: When it happened
+
+**Tracing:**
+- `correlationId`: Groups related events across services
+- `causationId`: The event that caused this one
+
+**Source:**
+- `source`: Which service produced this
+- `sourceVersion`: Version of producing service
+
+**Actor (for audit):**
+- `userId`: Who triggered this
+- `userAgent`: How they triggered it
+
 ```csharp
 var eventObj = new
 {
@@ -1008,7 +466,7 @@ var eventObj = new
 };
 ```
 
-**Correlation ID for distributed tracing:**
+**Correlation ID for distributed tracing:** When a user places an order, that single action triggers a cascade of events across multiple services. By including the same `correlationId` in all related events (OrderPlaced, EmailSent, InventoryReserved, ShipmentScheduled), you can trace the entire flow through your system logs.
 
 ```mermaid
 sequenceDiagram
@@ -1036,6 +494,20 @@ sequenceDiagram
 ```
 
 ### Principle 4: Design for Evolution
+
+Events live forever in your system. You need to design them to evolve gracefully.
+
+**Adding fields (backward compatible):**
+Start with version 1.0, then add optional fields in version 1.1:
+- Old consumers ignore fields they don't understand ✅
+- New consumers handle both versions ✅
+
+**Breaking changes (carefully managed):**
+If you need to fundamentally change the structure (version 2.0), you must:
+1. Keep producing both versions for a transition period
+2. Update all consumers to handle both versions
+3. Only after all consumers are updated, stop producing the old version
+4. Eventually remove old version handling code
 
 ```csharp
 // Version 1.0
@@ -1089,6 +561,11 @@ var eventV2 = new
 ```
 
 **Schema evolution strategy:**
+1. Version 1.0 released
+2. Add v1.1 producer (old consumers still work)
+3. Update consumers to handle both v1.0 and v1.1
+4. Once all consumers updated, stop producing v1.0
+5. Eventually remove v1.0 handling code
 
 ```mermaid
 graph TB
@@ -1138,6 +615,19 @@ graph TB
 ```
 
 **Finding the right granularity:**
+**Too fine-grained:** Events like `UserTypedCharacter: 'H'`, `UserTypedCharacter: 'e'` create excessive noise and eventual consistency issues.
+
+**Too coarse-grained:** A single event like `UserCompletedEntireWorkflow` loses important lifecycle details.
+
+**Just right:** Events like `FormStarted`, `FieldCompleted: Name`, `FieldCompleted: Email`, `FormSubmitted` capture meaningful stages without being chatty.
+
+**Order example - finding the right granularity:**
+
+**Too fine:** OrderCreated, Item1Added, Item2Added, Item1QuantityIncreased, Item3Added, Item2Removed, ShippingAddressLineOneSet, ShippingAddressCitySet... (Too chatty!)
+
+**Too coarse:** OrderCompleted (Loses important lifecycle stages)
+
+**Just right:** OrderPlaced, PaymentReceived, OrderShipped, OrderDelivered (Clear lifecycle, meaningful stages)
 
 ```csharp
 // Order example - granularity options
@@ -1192,10 +682,13 @@ graph LR
     style D fill:#ff7675
     style E fill:#00b894
 ```
+Your event schemas will evolve. Here's how to handle it safely:
 
 ### Strategy 1: Backward Compatibility (Safe)
 
 New producers can be consumed by old consumers.
+**Example:** You add an optional "currency" field to version 1.1 of OrderPlaced. Old consumers (version 1.0) simply ignore this field they don't know about. Everything continues working.
+
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // Old consumer (v1.0)
@@ -1224,6 +717,8 @@ var newEvent = new
 ### Strategy 2: Forward Compatibility (Harder)
 
 Old producers can be consumed by new consumers.
+**Example:** Your new consumer (version 1.1) expects a "currency" field. When it receives an old event (version 1.0) without this field, it uses a sensible default like "USD". This requires defensive programming.
+
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // New consumer (v1.1) expects currency field
@@ -1250,6 +745,11 @@ var oldEvent = new
 ```
 
 ### Schema Registry Integration
+For production systems, use a Schema Registry (like Confluent Schema Registry with Kafka) to:
+- Automatically version your schemas
+- Enforce compatibility rules
+- Validate events at runtime
+- Provide a central catalog of all event schemas
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 using Confluent.Kafka;
@@ -1304,6 +804,9 @@ await producer.ProduceAsync("orders", new Message<string, Order>
 ## Common Event Design Mistakes
 
 ### Mistake 1: Treating Events as Commands
+**Bad:** `SendConfirmationEmail` (Imperative - telling what to do)
+**Good:** `OrderPlaced` (Declarative - stating what happened). Let consumers decide to send email.
+
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // ❌ Bad: Command disguised as event
@@ -1324,6 +827,9 @@ var goodEvent = new
 ```
 
 ### Mistake 2: Including Too Much Data
+**Bad:** Dumping the entire database - order object, full customer history, all products with reviews and inventory, all related orders, company metadata. Event becomes 500 KB!
+**Good:** Just what consumers need - order ID, customer email, items in THIS order, total amount, shipping address. Event is 5 KB.
+
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // ❌ Bad: Dumping entire database
@@ -1359,6 +865,9 @@ var goodEvent = new
 ```
 
 ### Mistake 3: Including Too Little Data
+**Bad:** Just the order ID. Every consumer must call GET /orders/ORD-123.
+**Good:** Self-contained for common use cases. 80% of consumers have what they need without additional calls.
+
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // ❌ Bad: Forces consumers to make API calls
@@ -1386,6 +895,9 @@ var goodEvent = new
 ```
 
 ### Mistake 4: No Versioning
+**Bad:** No version information. How do consumers know what schema to expect?
+**Good:** Always include `eventVersion: "1.2"`. Consumers can handle different versions gracefully.
+
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // ❌ Bad: No version info
@@ -1407,6 +919,9 @@ var goodEvent = new
 ```
 
 ### Mistake 5: Mutable Events
+**Bad:** Updating events in the store. Events are history - you can't change the past!
+**Good:** Compensating events. Original event stays, new event corrects it. Example: `OrderCorrected` event references original `OrderPlaced` event and provides corrections.
+
 > 💡 **Pseudo code** - Simplified for illustration purposes
 ```csharp
 // ❌ Bad: Updating events
@@ -1446,213 +961,73 @@ stateDiagram-v2
     DriverAssigned --> RideCancelled
     RideCancelled --> [*]
 ```
+### The Ride Lifecycle:
 
-### Event Design:
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```json
-// Event 1: RideRequested
-{
-    "eventId": "evt_abc123",
-    "eventType": "RideRequested",
-    "eventVersion": "1.0",
-    "timestamp": "2025-11-01T14:30:00Z",
-    "source": "ride-service",
-    "correlationId": "ride_xyz789",
-    "data": {
-        "rideId": "RIDE-001",
-        "passengerId": "PASS-123",
-        "passengerName": "Jane Smith",
-        "passengerPhone": "+1-555-0123",
-        "passengerRating": 4.8,
-        "pickupLocation": {
-            "latitude": 42.3601,
-            "longitude": -71.0589,
-            "address": "123 Main St, Boston, MA"
-        },
-        "dropoffLocation": {
-            "latitude": 42.3584,
-            "longitude": -71.0598,
-            "address": "456 Park Ave, Boston, MA"
-        },
-        "estimatedDistance": 2.5,
-        "estimatedDuration": 10,
-        "rideType": "STANDARD",
-        "requestedAt": "2025-11-01T14:30:00Z"
-    }
-}
+1. **RideRequested** → Customer requests a ride
+2. **DriverAssigned** → System assigns a driver
+3. **DriverArrived** → Driver reaches pickup location
+4. **RideStarted** → Customer gets in, ride begins
+5. **RideCompleted** → Customer reaches destination
+6. **PaymentProcessed** → Payment is charged
+7. *(Alternative: RideCancelled at any point before ride starts)*
 
-// Event 2: DriverAssigned
-{
-    "eventId": "evt_def456",
-    "eventType": "DriverAssigned",
-    "eventVersion": "1.0",
-    "timestamp": "2025-11-01T14:30:15Z",
-    "correlationId": "ride_xyz789",
-    "causationId": "evt_abc123",
-    "data": {
-        "rideId": "RIDE-001",
-        "driverId": "DRV-789",
-        "driverName": "John Doe",
-        "driverPhone": "+1-555-0456",
-        "driverRating": 4.9,
-        "vehicleInfo": {
-            "make": "Toyota",
-            "model": "Camry",
-            "color": "Black",
-            "licensePlate": "ABC-123"
-        },
-        "driverLocation": {
-            "latitude": 42.3605,
-            "longitude": -71.0585
-        },
-        "estimatedArrival": "2025-11-01T14:35:00Z",
-        "assignedAt": "2025-11-01T14:30:15Z"
-    }
-}
+### Event 1: RideRequested
 
-// Event 3: RideStarted
-{
-    "eventId": "evt_ghi789",
-    "eventType": "RideStarted",
-    "eventVersion": "1.0",
-    "timestamp": "2025-11-01T14:35:30Z",
-    "correlationId": "ride_xyz789",
-    "causationId": "evt_def456",
-    "data": {
-        "rideId": "RIDE-001",
-        "startLocation": {
-            "latitude": 42.3601,
-            "longitude": -71.0589
-        },
-        "startOdometer": 45123.5,
-        "startedAt": "2025-11-01T14:35:30Z"
-    }
-}
+Contains everything needed to match a driver and start the ride:
+- Ride ID and passenger details (name, phone, rating)
+- Pickup location (GPS coordinates + address)
+- Dropoff location
+- Estimated distance and duration
+- Ride type (standard, premium, shared)
+- Timestamp
 
-// Event 4: RideCompleted
-{
-    "eventId": "evt_jkl012",
-    "eventType": "RideCompleted",
-    "eventVersion": "1.0",
-    "timestamp": "2025-11-01T14:45:30Z",
-    "correlationId": "ride_xyz789",
-    "causationId": "evt_ghi789",
-    "data": {
-        "rideId": "RIDE-001",
-        "endLocation": {
-            "latitude": 42.3584,
-            "longitude": -71.0598
-        },
-        "endOdometer": 45126.2,
-        "actualDistance": 2.7,
-        "actualDuration": 10,
-        "fareAmount": 15.50,
-        "fareBreakdown": {
-            "baseFare": 5.00,
-            "distanceFare": 8.50,
-            "timeFare": 2.00
-        },
-        "completedAt": "2025-11-01T14:45:30Z"
-    }
-}
-```
+### Event 2: DriverAssigned
 
-### Services Consuming These Events:
-> 💡 **Pseudo code** - Simplified for illustration purposes
-```csharp
-using System.Collections.Generic;
+Contains all driver and vehicle information passengers need:
+- Ride ID (links to original request)
+- Driver details (name, phone, rating)
+- Vehicle info (make, model, color, license plate)
+- Driver's current location
+- Estimated arrival time
+- Correlation ID (same as RideRequested for tracing)
+- Causation ID (references the RideRequested event)
 
-// Notification Service - Sends updates to passenger
-public class NotificationService
-{
-    public void HandleDriverAssigned(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        var vehicleInfo = (Dictionary<string, object>)data["vehicleInfo"];
-        
-        SendPushNotification(
-            passengerId: data["passengerId"].ToString(),
-            message: $"Your driver {data["driverName"]} is arriving in 5 minutes",
-            metadata: new Dictionary<string, object>
-            {
-                ["driver_name"] = data["driverName"],
-                ["vehicle"] = $"{vehicleInfo["color"]} {vehicleInfo["make"]}"
-            }
-        );
-    }
-    
-    private void SendPushNotification(string passengerId, string message, Dictionary<string, object> metadata)
-    {
-        // Push notification logic
-    }
-}
+### Event 3: RideStarted
 
-// Analytics Service - Tracks metrics
-public class AnalyticsService
-{
-    public void HandleRideCompleted(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        
-        RecordMetrics(new
-        {
-            @event = "ride_completed",
-            distance = (double)data["actualDistance"],
-            duration = (int)data["actualDuration"],
-            fare = (decimal)data["fareAmount"],
-            ride_type = "STANDARD"
-        });
-    }
-    
-    private void RecordMetrics(object metrics)
-    {
-        // Metrics recording logic
-    }
-}
+Captures the actual start of the ride:
+- Ride ID
+- Start location (actual GPS coordinates)
+- Start odometer reading
+- Timestamp
 
-// Payment Service - Processes payment
-public class PaymentService
-{
-    public void HandleRideCompleted(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        var fareBreakdown = (Dictionary<string, object>)data["fareBreakdown"];
-        
-        ChargePassenger(
-            rideId: data["rideId"].ToString(),
-            amount: (decimal)data["fareAmount"],
-            breakdown: fareBreakdown
-        );
-    }
-    
-    private void ChargePassenger(string rideId, decimal amount, Dictionary<string, object> breakdown)
-    {
-        // Payment processing logic
-    }
-}
+### Event 4: RideCompleted
 
-// Driver Commission Service - Calculates driver earnings
-public class DriverCommissionService
-{
-    public void HandleRideCompleted(Dictionary<string, object> eventObj)
-    {
-        var data = (Dictionary<string, object>)eventObj["data"];
-        var fareAmount = (decimal)data["fareAmount"];
-        var driverEarning = fareAmount * 0.75m; // 75% to driver
-        
-        CreditDriver(
-            driverId: data["driverId"].ToString(),
-            amount: driverEarning,
-            rideId: data["rideId"].ToString()
-        );
-    }
-    
-    private void CreditDriver(string driverId, decimal amount, string rideId)
-    {
-        // Driver commission logic
-    }
-}
-```
+Contains all information needed for payment and analytics:
+- Ride ID
+- End location (actual GPS coordinates)
+- End odometer reading
+- Actual distance and duration traveled
+- Fare amount and detailed breakdown (base fare, distance fare, time fare)
+- Timestamp
+
+### Who Consumes These Events:
+
+**Notification Service:** 
+- Consumes `DriverAssigned` to send push notification to passenger: "Your driver John is arriving in 5 minutes in a Black Toyota"
+
+**Analytics Service:**
+- Consumes `RideCompleted` to track metrics: ride distance, duration, revenue, customer behavior
+
+**Payment Service:**
+- Consumes `RideCompleted` to charge the passenger the calculated fare
+
+**Driver Commission Service:**
+- Consumes `RideCompleted` to calculate driver earnings (e.g., 75% of fare) and credit their account
+
+**All these services work autonomously** with the data in the events. No service needs to call back to the Ride service to get additional information.
+
+---
+
 
 ## Next Steps
 
