@@ -965,4 +965,4 @@ You now have a working, production-like Kafka application! 🎉
 6. Add retry logic for transient failures
 7. Implement event replay for reprocessing orders
 
-Ready for advanced patterns? Let's continue to Part 5! 🚀
+Ready for advanced patterns? Let's continue to [Part 5](part-05-advanced-kafka-concepts)! 🚀

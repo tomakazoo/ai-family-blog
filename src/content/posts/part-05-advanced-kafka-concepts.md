@@ -49,6 +49,7 @@ graph TB
 
 ## Message Delivery Semantics
 
+When sending messages through Kafka, you have three options for how reliably they get delivered. Think of it like sending a letter:
 ### The Three Guarantees
 
 ```mermaid
@@ -86,179 +87,62 @@ graph TB
 
 ### At-Most-Once (Fire and Forget)
 
-**Configuration:**
-```csharp
-using Confluent.Kafka;
+**📚 Complete Example:** [01-delivery-semantics/AtMostOnce →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/AtMostOnce)
 
-var config = new ProducerConfig
-{
-    BootstrapServers = "localhost:9092",
-    Acks = Acks.None,  // Don't wait for acknowledgment
-    Retries = 0  // Don't retry
-};
+This is like dropping a postcard in the mailbox without tracking. You send the message and immediately move on—you don't wait to confirm it arrived. It's the fastest option, but some messages might get lost.
 
-var producer = new ProducerBuilder<string, string>(config).Build();
+**When to use it:**
+- Collecting metrics where losing a few data points doesn't matter
+- Log files where some missing entries are acceptable
+- Any high-volume, low-importance data
 
-// Send message without waiting
-await producer.ProduceAsync("orders", new Message<string, string> 
-{ 
-    Value = "order-data" 
-});
-// Message might be lost, but we don't care!
-```
-
-**Use cases:**
-- Metrics collection (losing a few data points is OK)
-- Log aggregation (some logs can be lost)
-- High-throughput, low-importance data
+**Tradeoff:** Lightning fast, but you might lose some messages.
 
 **Pros:** ⚡ Extremely fast  
 **Cons:** ❌ Messages can be lost
 
-### At-Least-Once (Default)
-
-**Producer Configuration:**
-```csharp
-var config = new ProducerConfig
-{
-    BootstrapServers = "localhost:9092",
-    Acks = Acks.All,  // Wait for all replicas
-    Retries = 3,  // Retry on failure
-    MaxInFlight = 5
-};
-
-var producer = new ProducerBuilder<string, string>(config).Build();
-
-// Message guaranteed to be written
-var deliveryResult = await producer.ProduceAsync("orders", 
-    new Message<string, string> { Value = orderData },
-    cancellationToken: default);
-// Block until written with timeout
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/01-delivery-semantics
+dotnet run --project AtMostOnce/AtMostOnce.csproj
 ```
 
-**Consumer Challenge: Duplicates!**
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/README.md) | [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/HOW-TO-RUN.md)
 
-```csharp
-// Problem: Consumer might process twice
-var consumeResult = consumer.Consume(cancellationToken);
-try
-{
-    ProcessOrder(consumeResult.Message.Value);  // Processes the order
-    consumer.Commit(consumeResult);  // Commits offset
-}
-catch (Exception ex)
-{
-    // If ProcessOrder succeeds but Commit fails,
-    // message will be reprocessed on restart!
-    logger.LogError(ex, "Error processing message");
-}
+### At-Least-Once (The Safe Default)
+
+**📚 Complete Example:** [01-delivery-semantics/AtLeastOnce →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/AtLeastOnce)
+
+This is like sending a certified letter and keeping a receipt. The sender waits for confirmation that the message arrived. If it doesn't get confirmation, it sends again. This guarantees delivery but might result in duplicates if the confirmation gets lost.
+
+**The duplicate problem:**
+Imagine you process an order and update the database, but before you can record "I've processed this," your computer crashes. When you restart, you see the same order again and process it twice—now the customer is charged twice!
+
+**Solutions:**
+
+1. **Idempotent Consumer** - [IdempotentConsumer.cs →](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/AtLeastOnce/IdempotentConsumer.cs)
+2. **Database Deduplication** - See code comments in example
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/01-delivery-semantics
+dotnet run --project AtLeastOnce/AtLeastOnce.csproj
 ```
 
-**Solution 1: Idempotent Consumer**
+**Option 1: Remember what you've processed**
+Keep a list of message IDs you've already handled (like keeping a logbook). Before processing anything, check: "Have I seen this before?" If yes, skip it. If no, process it and record the ID.
 
-```csharp
-using StackExchange.Redis;
+You can store these IDs in a fast database (like Redis) with an expiration time—after 24 hours, old IDs automatically disappear to keep the list manageable.
 
-var redis = ConnectionMultiplexer.Connect("localhost");
-var db = redis.GetDatabase();
+**Option 2: Make processing repeatable**
+Design your system so that doing the same thing twice produces the same result. For example, instead of "add $100 to this account," use "set account balance to $500." Running it twice still results in $500.
 
-void ProcessMessageIdempotently(ConsumeResult<string, string> message)
-{
-    var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(message.Message.Value);
-    var eventId = eventData["event_id"].ToString();
-    
-    // Check if already processed
-    if (db.KeyExists($"processed:{eventId}"))
-    {
-        logger.LogInformation("Skipping duplicate: {EventId}", eventId);
-        return;
-    }
-    
-    // Process the event
-    ProcessOrder(eventData);
-    
-    // Mark as processed
-    db.StringSet($"processed:{eventId}", "1", TimeSpan.FromHours(24));  // 24 hour TTL
-    
-    logger.LogInformation("Processed: {EventId}", eventId);
-}
-
-// Consumer loop
-while (!cancellationToken.IsCancellationRequested)
-{
-    var consumeResult = consumer.Consume(cancellationToken);
-    ProcessMessageIdempotently(consumeResult);
-    consumer.Commit(consumeResult);
-}
-```
-
-**Solution 2: Database Deduplication**
-
-```csharp
-using Microsoft.EntityFrameworkCore;
-using System.ComponentModel.DataAnnotations;
-
-[Table("processed_events")]
-public class ProcessedEvent
-{
-    [Key]
-    [Column("event_id")]
-    public string EventId { get; set; }
-    
-    [Column("processed_at")]
-    public DateTime ProcessedAt { get; set; } = DateTime.UtcNow;
-    
-    [Column("order_id")]
-    public string OrderId { get; set; }
-}
-
-public class ApplicationDbContext : DbContext
-{
-    public DbSet<ProcessedEvent> ProcessedEvents { get; set; }
-    
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        optionsBuilder.UseNpgsql("Host=localhost;Database=mydb;Username=user;Password=pass");
-    }
-}
-
-async Task ProcessWithDbDeduplicationAsync(ConsumeResult<string, string> message, ApplicationDbContext context)
-{
-    var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(message.Message.Value);
-    var eventId = eventData["event_id"].ToString();
-    
-    using var transaction = await context.Database.BeginTransactionAsync();
-    try
-    {
-        // Check if processed
-        if (await context.ProcessedEvents.AnyAsync(e => e.EventId == eventId))
-        {
-            logger.LogInformation("Duplicate detected: {EventId}", eventId);
-            return;
-        }
-        
-        // Process in transaction
-        await ProcessOrderAsync(eventData);
-        
-        // Mark as processed
-        context.ProcessedEvents.Add(new ProcessedEvent
-        {
-            EventId = eventId,
-            OrderId = eventData["order_id"].ToString()
-        });
-        
-        await context.SaveChangesAsync();
-        await transaction.CommitAsync();
-    }
-    catch
-    {
-        await transaction.RollbackAsync();
-        throw;
-    }
-}
-```
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/README.md)
 
 ### Exactly-Once Semantics (EOS)
+
+**📚 Complete Example:** [01-delivery-semantics/ExactlyOnce →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/ExactlyOnce)
+
 
 The holy grail: messages delivered exactly once, no duplicates, no losses.
 
@@ -297,42 +181,10 @@ sequenceDiagram
     Note over Producer,Database: End-to-End Exactly-Once!
 ```
 
-**Idempotent Producer:**
-
-```csharp
-var config = new ProducerConfig
-{
-    BootstrapServers = "localhost:9092",
-    
-    // Enable idempotence
-    EnableIdempotence = true,
-    
-    // Required for idempotence
-    Acks = Acks.All,
-    Retries = int.MaxValue,  // Max retries
-    MaxInFlight = 5
-};
-
-var producer = new ProducerBuilder<string, string>(config).Build();
-
-// Producer automatically handles deduplication
-// Each producer instance gets a unique PID (Producer ID)
-// Each message gets a sequence number
-// Broker deduplicates based on (PID, Sequence)
-
-for (int i = 0; i < 10; i++)
-{
-    await producer.ProduceAsync("orders", new Message<string, string>
-    {
-        Value = JsonSerializer.Serialize(new { order_id = $"ORD-{i}" })
-    });
-}
-
-producer.Flush(TimeSpan.FromSeconds(10));
-producer.Dispose();
-```
-
 **How it works:**
+
+**Step 1: Idempotent Producer**
+Kafka gives each sender a unique ID and numbers each message. If the sender tries to send message #5 again, Kafka recognizes: "I already have message #5 from this sender" and discards the duplicate automatically.
 
 1. **Producer ID (PID)**: Each producer gets unique ID
 2. **Sequence Number**: Messages numbered per partition
@@ -349,196 +201,23 @@ producer.Dispose();
 // Broker sees: "Already have sequence 1, ignore"
 ```
 
-**Transactional Producer:**
+**Step 2: Transactional Writes**
+When you need to send multiple related messages (like updating an order, inventory, and analytics), you can group them into a single transaction. Either all messages get published, or none do—just like a database transaction.
 
-```csharp
-var config = new ProducerConfig
-{
-    BootstrapServers = "localhost:9092",
-    TransactionalId = "my-transactional-producer",  // Must be unique
-    EnableIdempotence = true,
-    Acks = Acks.All
-};
+For example, imagine processing an online order requires:
+1. Creating the order record
+2. Reducing inventory
+3. Sending a notification
 
-var producer = new ProducerBuilder<string, string>(config).Build();
+With transactions, if step 3 fails, Kafka automatically undoes steps 1 and 2. This prevents partial updates that could leave your system in an inconsistent state.
 
-// Initialize transactions
-producer.InitTransactions(TimeSpan.FromSeconds(10));
+**Step 3: Reading Only Committed Messages**
+Consumers configured for exactly-once will only see messages from completed transactions—they never see partial or rolled-back data.
 
-try
-{
-    // Begin transaction
-    producer.BeginTransaction();
-    
-    // Send multiple messages atomically
-    await producer.ProduceAsync("orders", new Message<string, string>
-    {
-        Value = JsonSerializer.Serialize(new { order_id = "ORD-1" })
-    });
-    await producer.ProduceAsync("inventory", new Message<string, string>
-    {
-        Value = JsonSerializer.Serialize(new { product_id = "PROD-1", qty = -1 })
-    });
-    await producer.ProduceAsync("analytics", new Message<string, string>
-    {
-        Value = JsonSerializer.Serialize(new { event = "order_placed" })
-    });
-    
-    // All or nothing - commit transaction
-    producer.CommitTransaction(TimeSpan.FromSeconds(10));
-    
-    Console.WriteLine("✅ Transaction committed - all messages written atomically");
-}
-catch (Exception ex)
-{
-    // Rollback on error
-    producer.AbortTransaction(TimeSpan.FromSeconds(10));
-    Console.WriteLine($"❌ Transaction aborted: {ex.Message}");
-}
-```
+**The complete picture:**
+When everything works together (idempotent producers, transactional writes, and careful consumers), you get end-to-end exactly-once delivery. A message gets processed once and only once, even if computers crash or networks fail.
 
-**Transactional Consumer:**
-
-```csharp
-var consumerConfig = new ConsumerConfig
-{
-    BootstrapServers = "localhost:9092",
-    GroupId = "order-processor",
-    
-    // Only read committed transactions
-    IsolationLevel = IsolationLevel.ReadCommitted,
-    
-    // Disable auto-commit for manual control
-    EnableAutoCommit = false
-};
-
-var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
-consumer.Subscribe("orders");
-
-while (!cancellationToken.IsCancellationRequested)
-{
-    var consumeResult = consumer.Consume(cancellationToken);
-    var eventData = JsonSerializer.Deserialize<Dictionary<string, object>>(consumeResult.Message.Value);
-    
-    try
-    {
-        // Process message
-        await ProcessOrderAsync(eventData);
-        
-        // Manually commit offset
-        consumer.Commit(consumeResult);
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Processing failed");
-        // Don't commit - message will be reprocessed
-    }
-}
-```
-
-**End-to-End Exactly-Once:**
-
-```csharp
-using Npgsql;
-
-public class ExactlyOnceProcessor
-{
-    private readonly IConsumer<string, string> _consumer;
-    private readonly IProducer<string, string> _producer;
-    private readonly NpgsqlConnection _dbConnection;
-
-    public ExactlyOnceProcessor()
-    {
-        // Consumer
-        var consumerConfig = new ConsumerConfig
-        {
-            BootstrapServers = "localhost:9092",
-            GroupId = "processor",
-            IsolationLevel = IsolationLevel.ReadCommitted,
-            EnableAutoCommit = false
-        };
-        _consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
-        _consumer.Subscribe("input-topic");
-        
-        // Producer
-        var producerConfig = new ProducerConfig
-        {
-            BootstrapServers = "localhost:9092",
-            TransactionalId = "processor-producer",
-            EnableIdempotence = true
-        };
-        _producer = new ProducerBuilder<string, string>(producerConfig).Build();
-        
-        // Database
-        _dbConnection = new NpgsqlConnection("Host=localhost;Database=mydb;Username=user;Password=pass");
-        _dbConnection.Open();
-        
-        _producer.InitTransactions(TimeSpan.FromSeconds(10));
-    }
-
-    public async Task ProcessExactlyOnceAsync(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var message = _consumer.Consume(cancellationToken);
-            try
-            {
-                _producer.BeginTransaction();
-                
-                // 1. Process message
-                var result = await ProcessMessageAsync(message.Message.Value);
-                
-                // 2. Write to database
-                using var cmd = new NpgsqlCommand(
-                    "INSERT INTO orders VALUES (@order_id, @amount)",
-                    _dbConnection);
-                cmd.Parameters.AddWithValue("order_id", result["order_id"].ToString());
-                cmd.Parameters.AddWithValue("amount", Convert.ToDecimal(result["amount"]));
-                await cmd.ExecuteNonQueryAsync(cancellationToken);
-                
-                // 3. Produce output event
-                await _producer.ProduceAsync("output-topic", new Message<string, string>
-                {
-                    Value = JsonSerializer.Serialize(result)
-                }, cancellationToken);
-                
-                // 4. Commit consumer offsets (within transaction!)
-                var offsets = new TopicPartitionOffset[]
-                {
-                    new TopicPartitionOffset(
-                        new TopicPartition("input-topic", message.Partition),
-                        new Offset(message.Offset + 1))
-                };
-                
-                _producer.SendOffsetsToTransaction(
-                    offsets,
-                    _consumer.ConsumerGroupMetadata,
-                    TimeSpan.FromSeconds(10));
-                
-                // 5. Commit transaction
-                _producer.CommitTransaction(TimeSpan.FromSeconds(10));
-                
-                Console.WriteLine($"✅ Processed exactly once: {result["order_id"]}");
-            }
-            catch (Exception ex)
-            {
-                _producer.AbortTransaction(TimeSpan.FromSeconds(10));
-                // Note: Npgsql doesn't support explicit rollback for individual commands
-                // In a transaction, you'd use NpgsqlTransaction instead
-                Console.WriteLine($"❌ Transaction aborted: {ex.Message}");
-            }
-        }
-    }
-
-    private Task<Dictionary<string, object>> ProcessMessageAsync(string messageValue)
-    {
-        // Process message implementation
-        return Task.FromResult(JsonSerializer.Deserialize<Dictionary<string, object>>(messageValue));
-    }
-}
-```
-
-**Performance Impact:**
+**Performance impact:** Exactly-once adds about 20-40% overhead compared to at-least-once, but it guarantees data correctness.
 
 ```mermaid
 graph LR
@@ -554,8 +233,17 @@ graph LR
     style A2 fill:#fdcb6e
     style A3 fill:#ff7675
 ```
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/01-delivery-semantics
+dotnet run --project ExactlyOnce/ExactlyOnce.csproj
+```
+
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/README.md)
 
 ## Log Compaction
+
+**📚 Complete Example:** [02-log-compaction →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/02-log-compaction)
 
 Traditional retention deletes old messages after time/size limits. Log compaction keeps the **latest value for each key** indefinitely.
 
@@ -586,155 +274,31 @@ graph TB
     style A5 fill:#ff7675,stroke:#d63031,color:#fff
     style B5 fill:#00b894,stroke:#00a383,color:#fff
 ```
+**How it works:**
 
-### Creating a Compacted Topic
+Think of a phone book. Without compaction, every address change creates a new entry, and eventually, the whole book gets thrown away. With compaction, you only keep each person's current address—when someone moves, you replace their old address with the new one.
 
-```bash
-kafka-topics --create \
-  --bootstrap-server localhost:9092 \
-  --topic user-profiles \
-  --partitions 3 \
-  --replication-factor 3 \
-  --config cleanup.policy=compact \
-  --config min.cleanable.dirty.ratio=0.5 \
-  --config segment.ms=86400000
-```
+For example, with user profiles:
+1. Monday: User-123 has email alice@old.com
+2. Tuesday: User-123 updates to alice@new.com
+3. Wednesday: User-123 changes their theme preference
+4. Thursday: User-123 updates their name
 
-### Using Compacted Topics
+Without compaction, after 7 days, all this information disappears.
 
-**Producer (State Updates):**
+With compaction, Kafka keeps only the latest record for User-123 with all their current information. Old versions get removed automatically.
 
-```csharp
-var config = new ProducerConfig
-{
-    BootstrapServers = "localhost:9092"
-};
+**Deleting data:**
+To remove a key completely (like deleting a user), you send a special "tombstone" message—a message with the key but no value. After compaction, that key disappears from the log entirely.
 
-var producer = new ProducerBuilder<string, string>(config).Build();
+**Use cases:**
+- User profiles: Keep current profile for each user
+- Configuration: Store latest config for each service
+- Database change tracking: Maintain current state of each database row
+- Cache management: Keep latest cached values
 
-// Update user profile
-await producer.ProduceAsync("user-profiles", new Message<string, string>
-{
-    Key = "user-123",  // Key determines which record to keep
-    Value = JsonSerializer.Serialize(new
-    {
-        user_id = "user-123",
-        name = "Alice Smith",
-        email = "alice@example.com",
-        preferences = new
-        {
-            theme = "dark",
-            notifications = true
-        }
-    })
-});
-
-// Later update
-await producer.ProduceAsync("user-profiles", new Message<string, string>
-{
-    Key = "user-123",
-    Value = JsonSerializer.Serialize(new
-    {
-        user_id = "user-123",
-        name = "Alice Smith",
-        email = "alice.new@example.com",  // Updated email
-        preferences = new
-        {
-            theme = "light",  // Updated theme
-            notifications = true
-        }
-    })
-});
-
-// After compaction, only latest value for 'user-123' remains
-producer.Flush(TimeSpan.FromSeconds(10));
-```
-
-**Consumer (Rebuild State):**
-
-```csharp
-Dictionary<string, Dictionary<string, object>> RebuildUserState()
-{
-    // Rebuild entire user database from compacted log
-    var config = new ConsumerConfig
-    {
-        BootstrapServers = "localhost:9092",
-        AutoOffsetReset = AutoOffsetReset.Earliest  // Read from beginning
-    };
-    
-    var consumer = new ConsumerBuilder<string, string>(config).Build();
-    
-    // Get all partitions
-    var metadata = consumer.GetMetadata(TimeSpan.FromSeconds(10));
-    var topic = metadata.Topics.FirstOrDefault(t => t.Topic == "user-profiles");
-    var topicPartitions = topic.Partitions
-        .Select(p => new TopicPartition("user-profiles", p.PartitionId))
-        .ToList();
-    
-    consumer.Assign(topicPartitions);
-    
-    // Rebuild state
-    var userState = new Dictionary<string, Dictionary<string, object>>();
-    var endOffsets = consumer.GetWatermarkOffsets(topicPartitions.Select(tp => 
-        new TopicPartitionOffset(tp, Offset.End)).ToList());
-    
-    while (true)
-    {
-        var consumeResult = consumer.Consume(TimeSpan.FromSeconds(5));
-        
-        if (consumeResult == null)
-        {
-            // Check if we've reached the end
-            bool allCaughtUp = topicPartitions.All(tp =>
-            {
-                var position = consumer.Position(tp);
-                var watermark = consumer.GetWatermarkOffsets(tp);
-                return position >= watermark.High;
-            });
-            
-            if (allCaughtUp) break;
-            continue;
-        }
-        
-        var userId = consumeResult.Message.Key;
-        var userData = JsonSerializer.Deserialize<Dictionary<string, object>>(consumeResult.Message.Value);
-        
-        // Latest value wins
-        userState[userId] = userData;
-    }
-    
-    consumer.Close();
-    
-    Console.WriteLine($"✅ Rebuilt state for {userState.Count} users");
-    return userState;
-}
-
-// Rebuild user database
-var users = RebuildUserState();
-```
-
-**Deleting Keys (Tombstone):**
-
-```csharp
-// Send null value to delete a key
-await producer.ProduceAsync("user-profiles", new Message<string, string>
-{
-    Key = "user-123",
-    Value = null  // Tombstone - deletes the key
-});
-
-// After compaction, user-123 is removed from the log
-```
-
-### Use Cases for Log Compaction
-
-1. **User Profiles** - Latest profile for each user
-2. **Configuration** - Current config for each service
-3. **Cache Invalidation** - Latest cache entries
-4. **Database Change Data Capture (CDC)** - Latest row state
-5. **Materialized Views** - Latest computed results
-
-### Compaction Process
+**Rebuilding state:**
+A new consumer can read the entire compacted log and quickly rebuild the complete current state. It's like getting a snapshot of "the world as it is now" rather than having to replay every single change that ever happened.
 
 ```mermaid
 sequenceDiagram
@@ -760,10 +324,29 @@ sequenceDiagram
     
     Note over Compacted Segment: Only latest values remain
 ```
+**What it demonstrates:**
+- Topic compaction configuration (`cleanup.policy=compact`)
+- Latest state per key preservation
+- State store reconstruction
+
+**Key Files:**
+- [UserStateProducer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/02-log-compaction/Producer/UserStateProducer.cs) - Produces updates with same key
+- [UserStateConsumer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/02-log-compaction/Consumer/UserStateConsumer.cs) - Reads compacted log
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/02-log-compaction
+dotnet run --project Producer/Producer.csproj
+dotnet run --project Consumer/Consumer.csproj
+```
+
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/02-log-compaction/README.md) | [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/02-log-compaction/HOW-TO-RUN.md)
 
 ## Kafka Streams
 
-Kafka Streams is a library for building real-time stream processing applications directly on Kafka.
+**📚 Complete Example:** [03-kafka-streams →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/03-kafka-streams)
+
+Kafka Streams is a library for building applications that process data in real-time, directly from Kafka topics. Instead of writing separate programs to read from Kafka, process data, and write back to Kafka, Kafka Streams does all three together seamlessly.
 
 ```mermaid
 graph LR
@@ -779,116 +362,37 @@ graph LR
     
     style Streams fill:#00b894
 ```
+**Traditional approach:** Build a consumer, write processing logic, build a producer, handle crashes, manage state—lots of moving parts.
 
-### Simple Kafka Streams Example (Java)
+**Kafka Streams approach:** Write your processing logic, and Kafka Streams handles everything else automatically.
 
-```java
-import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.StreamsBuilder;
-import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.kstream.KStream;
-import java.util.Properties;
+### Simple Operations
 
-public class OrderProcessingStream {
-    public static void main(String[] args) {
-        Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "order-processor");
-        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-        
-        StreamsBuilder builder = new StreamsBuilder();
-        
-        // Input stream
-        KStream<String, Order> orders = builder.stream("orders");
-        
-        // Filter high-value orders
-        KStream<String, Order> highValueOrders = orders.filter(
-            (key, order) -> order.getAmount() > 1000.0
-        );
-        
-        // Transform
-        KStream<String, OrderAlert> alerts = highValueOrders.mapValues(
-            order -> new OrderAlert(
-                order.getOrderId(),
-                order.getAmount(),
-                "High value order alert!"
-            )
-        );
-        
-        // Output stream
-        alerts.to("high-value-order-alerts");
-        
-        KafkaStreams streams = new KafkaStreams(builder.build(), props);
-        streams.start();
-        
-        // Graceful shutdown
-        Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
-    }
-}
-```
+**Filtering:**
+Like using a sieve—only let certain messages through. For example, "only show me orders over $1,000" or "only process messages from premium customers."
 
-### Stateless Operations
+**Transforming:**
+Change the format or content of messages. For example, convert prices from dollars to euros, extract just the email addresses from user profiles, or calculate totals.
 
-```java
-StreamsBuilder builder = new StreamsBuilder();
-KStream<String, Order> orders = builder.stream("orders");
+**Splitting:**
+Route messages to different paths based on rules. For example, send small orders (under $100) one way, medium orders ($100-$1,000) another way, and large orders (over $1,000) a third way.
 
-// Filter
-orders.filter((key, order) -> order.getStatus().equals("PENDING"));
+### Stateful Operations (Keeping Track of Things)
 
-// Map values
-orders.mapValues(order -> order.getAmount());
+**Counting and Summing:**
+Keep running totals. For example, count how many orders each customer has placed, or calculate each customer's total spending. These values update automatically as new messages arrive.
 
-// FlatMap
-orders.flatMapValues(order -> order.getItems());
+**Windowed Calculations:**
+Track metrics over time periods. There are three types:
 
-// Branch (split stream)
-KStream<String, Order>[] branches = orders.branch(
-    (key, order) -> order.getAmount() < 100,    // Small orders
-    (key, order) -> order.getAmount() < 1000,   // Medium orders
-    (key, order) -> true                         // Large orders
-);
-```
+1. **Tumbling Windows (Non-overlapping):**
+   Like hourly buckets—8am-9am, 9am-10am, 10am-11am. Each message goes into exactly one bucket. Use this for hourly sales reports or daily statistics.
 
-### Stateful Operations
+2. **Hopping Windows (Overlapping):**
+   Like a sliding window—calculate "last 10 minutes" every 5 minutes. Windows overlap, so some messages appear in multiple windows. Use this for moving averages or trend detection.
 
-**Aggregation:**
-
-```java
-// Count orders per customer
-KTable<String, Long> orderCountsByCustomer = orders
-    .groupBy((key, order) -> order.getCustomerId())
-    .count();
-
-// Sum revenue per customer
-KTable<String, Double> revenueByCustomer = orders
-    .groupBy((key, order) -> order.getCustomerId())
-    .aggregate(
-        () -> 0.0,  // Initializer
-        (customerId, order, aggregate) -> aggregate + order.getAmount()  // Adder
-    );
-```
-
-**Windowed Aggregation:**
-
-```java
-import org.apache.kafka.streams.kstream.TimeWindows;
-import java.time.Duration;
-
-// Count orders per customer in 5-minute windows
-KTable<Windowed<String>, Long> windowedCounts = orders
-    .groupBy((key, order) -> order.getCustomerId())
-    .windowedBy(TimeWindows.of(Duration.ofMinutes(5)))
-    .count();
-
-// Sum revenue in 1-hour tumbling windows
-KTable<Windowed<String>, Double> hourlyRevenue = orders
-    .groupBy((key, order) -> order.getCustomerId())
-    .windowedBy(TimeWindows.of(Duration.ofHours(1)))
-    .aggregate(
-        () -> 0.0,
-        (customerId, order, sum) -> sum + order.getAmount()
-    );
-```
+3. **Session Windows (Activity-based):**
+   Group activity by user behavior. If a user is inactive for 30 minutes, that session closes and a new one starts. Use this for website analytics or detecting user engagement patterns.
 
 ```mermaid
 graph TB
@@ -922,150 +426,99 @@ graph TB
     style S1 fill:#fd79a8
 ```
 
-**Joins:**
+## Kafka Streams: Real-Time Processing Made Simple
 
-```java
-// Stream-Stream Join
-KStream<String, Order> orders = builder.stream("orders");
-KStream<String, Payment> payments = builder.stream("payments");
+Kafka Streams is a library for building applications that process data in real-time, directly from Kafka topics. Instead of writing separate programs to read from Kafka, process data, and write back to Kafka, Kafka Streams does all three together seamlessly.
 
-KStream<String, OrderWithPayment> enriched = orders.join(
-    payments,
-    (order, payment) -> new OrderWithPayment(order, payment),
-    JoinWindows.of(Duration.ofMinutes(5))  // Join within 5-minute window
-);
+**Traditional approach:** Build a consumer, write processing logic, build a producer, handle crashes, manage state—lots of moving parts.
 
-// Stream-Table Join (enrichment)
-KTable<String, Customer> customers = builder.table("customers");
+**Kafka Streams approach:** Write your processing logic, and Kafka Streams handles everything else automatically.
 
-KStream<String, EnrichedOrder> enrichedOrders = orders.join(
-    customers,
-    (order, customer) -> new EnrichedOrder(order, customer)
-);
+### Simple Operations
 
-// Table-Table Join
-KTable<String, Customer> customers = builder.table("customers");
-KTable<String, Address> addresses = builder.table("addresses");
+**Filtering:**
+Like using a sieve—only let certain messages through. For example, "only show me orders over $1,000" or "only process messages from premium customers."
 
-KTable<String, CustomerWithAddress> joined = customers.join(
-    addresses,
-    (customer, address) -> new CustomerWithAddress(customer, address)
-);
+**Transforming:**
+Change the format or content of messages. For example, convert prices from dollars to euros, extract just the email addresses from user profiles, or calculate totals.
+
+**Splitting:**
+Route messages to different paths based on rules. For example, send small orders (under $100) one way, medium orders ($100-$1,000) another way, and large orders (over $1,000) a third way.
+
+### Stateful Operations (Keeping Track of Things)
+
+**Counting and Summing:**
+Keep running totals. For example, count how many orders each customer has placed, or calculate each customer's total spending. These values update automatically as new messages arrive.
+
+**Windowed Calculations:**
+Track metrics over time periods. There are three types:
+
+1. **Tumbling Windows (Non-overlapping):**
+   Like hourly buckets—8am-9am, 9am-10am, 10am-11am. Each message goes into exactly one bucket. Use this for hourly sales reports or daily statistics.
+
+2. **Hopping Windows (Overlapping):**
+   Like a sliding window—calculate "last 10 minutes" every 5 minutes. Windows overlap, so some messages appear in multiple windows. Use this for moving averages or trend detection.
+
+3. **Session Windows (Activity-based):**
+   Group activity by user behavior. If a user is inactive for 30 minutes, that session closes and a new one starts. Use this for website analytics or detecting user engagement patterns.
+
+**Joining Data Streams:**
+
+**Stream-Stream Join:**
+Combine two related events that happen close in time. For example, match an "order created" event with a "payment received" event that happens within 5 minutes. This creates a complete picture of the transaction.
+
+**Stream-Table Join (Enrichment):**
+Add reference data to events. For example, when processing an order, look up customer details (name, address, loyalty status) from a customer table and include that information with the order. The table stays in memory for fast lookups.
+
+**Table-Table Join:**
+Combine two reference datasets. For example, join customer information with their addresses to create a complete customer profile. Both tables update independently, and the join result updates automatically.
+
+### Complete Example: Real-Time Analytics
+
+Imagine building a real-time analytics system for an e-commerce platform:
+
+**Step 1: Enrich orders with product details**
+When an order comes in, look up the product name, category, and price from the products table and add that information to the order.
+
+**Step 2: Calculate revenue by product**
+For each product, add up all sales in one-hour windows. Every hour, you get a report showing which products generated the most revenue.
+
+**Step 3: Identify high-value customers**
+Track each customer's total spending over 24-hour rolling windows. When someone spends more than $10,000 in a day, automatically flag them as a VIP customer and trigger special handling.
+
+**Step 4: Generate reports**
+Publish the revenue reports and VIP alerts to output topics where other systems can use them—maybe send VIP customers personalized emails or show product rankings on a dashboard.
+
+All this happens automatically in real-time as orders flow through the system. No manual intervention needed.
+
+### State Storage
+
+Kafka Streams automatically maintains state (like running totals or cached lookup data) in persistent storage. If your application crashes and restarts, it automatically recovers its state and continues where it left off. You don't have to manage this—it just works.
+
+
+**Key Files:**
+- [OrderProcessingTopology.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/03-kafka-streams/Streams/OrderProcessingTopology.cs) - Stream processing logic
+- [OrderProducer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/03-kafka-streams/Examples/OrderProducer.cs) - Produces orders
+- [StreamsDemo.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/03-kafka-streams/Examples/StreamsDemo.cs) - Runs stream processing
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/03-kafka-streams
+# Terminal 1: Producer
+dotnet run --project Examples/Examples.csproj
+# Terminal 2: Stream processor (modify StartupObject to StreamsDemo)
+dotnet run --project Examples/Examples.csproj
 ```
 
-### Complete Kafka Streams Example
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/03-kafka-streams/README.md) | [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/03-kafka-streams/HOW-TO-RUN.md)
 
-```java
-import org.apache.kafka.streams.*;
-import org.apache.kafka.streams.kstream.*;
-import java.time.Duration;
-import java.util.Properties;
+**💡 Note:** .NET doesn't have native Kafka Streams. This example simulates stream processing concepts. For production, consider Kafka Streams (Java) or ksqlDB.
 
-public class RealTimeAnalytics {
-    public static void main(String[] args) {
-        Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "analytics");
-        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-        
-        StreamsBuilder builder = new StreamsBuilder();
-        
-        // Input streams
-        KStream<String, Order> orders = builder.stream("orders");
-        KTable<String, Product> products = builder.table("products");
-        
-        // 1. Enrich orders with product information
-        KStream<String, EnrichedOrder> enrichedOrders = orders
-            .selectKey((key, order) -> order.getProductId())  // Rekey by product
-            .join(
-                products,
-                (order, product) -> new EnrichedOrder(order, product)
-            );
-        
-        // 2. Calculate revenue per product in 1-hour windows
-        KTable<Windowed<String>, Double> revenueByProduct = enrichedOrders
-            .groupBy((key, enrichedOrder) -> enrichedOrder.getProductName())
-            .windowedBy(TimeWindows.of(Duration.ofHours(1)))
-            .aggregate(
-                () -> 0.0,
-                (productName, enrichedOrder, total) -> 
-                    total + enrichedOrder.getAmount()
-            );
-        
-        // 3. Detect high-value customers (>$10,000 in 24 hours)
-        KTable<Windowed<String>, Double> customerSpending = enrichedOrders
-            .groupBy((key, enrichedOrder) -> enrichedOrder.getCustomerId())
-            .windowedBy(TimeWindows.of(Duration.ofHours(24)))
-            .aggregate(
-                () -> 0.0,
-                (customerId, enrichedOrder, total) -> 
-                    total + enrichedOrder.getAmount()
-            );
-        
-        KStream<Windowed<String>, Double> highValueCustomers = customerSpending
-            .toStream()
-            .filter((windowedCustomerId, spending) -> spending > 10000.0);
-        
-        // 4. Output results
-        revenueByProduct
-            .toStream()
-            .map((windowedProduct, revenue) -> 
-                KeyValue.pair(
-                    windowedProduct.key(),
-                    new RevenueReport(
-                        windowedProduct.key(),
-                        windowedProduct.window().start(),
-                        windowedProduct.window().end(),
-                        revenue
-                    )
-                )
-            )
-            .to("product-revenue-reports");
-        
-        highValueCustomers
-            .map((windowedCustomer, spending) -> 
-                KeyValue.pair(
-                    windowedCustomer.key(),
-                    new VIPAlert(windowedCustomer.key(), spending)
-                )
-            )
-            .to("vip-customer-alerts");
-        
-        KafkaStreams streams = new KafkaStreams(builder.build(), props);
-        streams.start();
-        
-        Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
-    }
-}
-```
+## Schema Registry: Managing Data Evolution
 
-### Kafka Streams State Stores
+**📚 Schema Registry Setup:** [01-fundamentals →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/01-fundamentals)
 
-```java
-// Create state store for caching
-StreamsBuilder builder = new StreamsBuilder();
-
-// Add state store
-StoreBuilder<KeyValueStore<String, Long>> storeBuilder = 
-    Stores.keyValueStoreBuilder(
-        Stores.persistentKeyValueStore("customer-stats"),
-        Serdes.String(),
-        Serdes.Long()
-    );
-
-builder.addStateStore(storeBuilder);
-
-// Use state store in processor
-KStream<String, Order> orders = builder.stream("orders");
-
-orders.process(
-    () -> new CustomerStatsProcessor("customer-stats"),
-    "customer-stats"
-);
-```
-
-## Schema Registry
-
-Schema Registry manages and validates schemas for Kafka messages.
+Schema Registry solves a critical problem: how do you change your data format without breaking existing consumers?
 
 ```mermaid
 graph TB
@@ -1094,325 +547,178 @@ graph TB
     style SR fill:#00b894
 ```
 
-### Setting Up Schema Registry
+**The problem without Schema Registry:**
 
-**Docker Compose:**
+Imagine you have three applications:
+- App A sends orders using version 1 of the order format
+- App B sends orders using version 2 with an extra field
+- App C reads orders but expects version 1
 
-```yaml
-schema-registry:
-  image: confluentinc/cp-schema-registry:7.5.0
-  depends_on:
-    - kafka-1
-    - kafka-2
-    - kafka-3
-  ports:
-    - "8081:8081"
-  environment:
-    SCHEMA_REGISTRY_HOST_NAME: schema-registry
-    SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka-1:29092'
-    SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-```
+When App C reads a version 2 message, it crashes because it doesn't understand the new field. You have no way to validate compatibility before deploying.
 
-### Avro Schema Example
+**How Schema Registry works:**
 
-**Define schema (`order-v1.avsc`):**
+1. **Registration:** When a producer wants to send data, it first registers its schema (data format) with the Registry. The Registry checks if this schema is compatible with existing schemas and assigns it a unique ID.
 
-```json
-{
-  "type": "record",
-  "name": "Order",
-  "namespace": "com.example.ecommerce",
-  "fields": [
-    {"name": "order_id", "type": "string"},
-    {"name": "customer_id", "type": "string"},
-    {"name": "amount", "type": "double"},
-    {"name": "currency", "type": "string", "default": "USD"},
-    {"name": "order_date", "type": "long", "logicalType": "timestamp-millis"}
-  ]
-}
-```
+2. **Sending messages:** The producer includes the schema ID in each message (not the full schema—just the ID number).
 
-**Producer with Schema Registry:**
+3. **Reading messages:** When a consumer reads a message, it extracts the schema ID, asks the Registry for that schema, then uses it to interpret the data correctly.
 
-```csharp
-using Confluent.SchemaRegistry;
-using Confluent.SchemaRegistry.Serdes;
-using Confluent.Kafka;
+4. **Validation:** The Registry enforces compatibility rules, preventing incompatible changes from being deployed.
 
-// Create schema registry client
-var schemaRegistryConfig = new SchemaRegistryConfig
-{
-    Url = "http://localhost:8081"
-};
-var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
+### Schema Evolution Patterns
 
-// Create producer with Avro serializer
-var producerConfig = new ProducerConfig
-{
-    BootstrapServers = "localhost:9092"
-};
+**Backward Compatible (Safest):**
+New schema can read old data. For example, adding a new optional field with a default value. Old consumers ignore the new field, new consumers use it. Everyone's happy.
 
-var producer = new ProducerBuilder<string, Order>(producerConfig)
-    .SetValueSerializer(new AvroSerializer<Order>(schemaRegistry))
-    .Build();
+Example: Adding "customer_email" as optional. Old data without this field still works because new consumers use a default value (like empty string) when it's missing.
 
-// Produce message
-await producer.ProduceAsync("orders", new Message<string, Order>
-{
-    Value = new Order
-    {
-        order_id = "ORD-123",
-        customer_id = "CUST-456",
-        amount = 99.99,
-        currency = "USD",
-        order_date = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-    }
-});
+**Forward Compatible:**
+Old schema can read new data. For example, removing an optional field. New producers stop sending it, but old consumers don't crash—they just see empty values.
 
-producer.Flush(TimeSpan.FromSeconds(10));
-```
+**Full Compatible (Gold Standard):**
+Both backward and forward compatible. Changes work in both directions. This is the safest but most restrictive option.
 
-**Consumer with Schema Registry:**
+**No Compatibility:**
+Anything goes—no validation. Only use this when you're certain consumers and producers will be updated together, or during initial development.
 
-```csharp
-// Create schema registry client
-var schemaRegistryConfig = new SchemaRegistryConfig
-{
-    Url = "http://localhost:8081"
-};
-var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
+### Using Different Data Formats
 
-// Create consumer with Avro deserializer
-var consumerConfig = new ConsumerConfig
-{
-    BootstrapServers = "localhost:9092",
-    GroupId = "order-processor"
-};
+While Schema Registry is often associated with Avro (a specific data format), it also supports JSON Schema and Protocol Buffers. The choice depends on your needs:
 
-var consumer = new ConsumerBuilder<string, Order>(consumerConfig)
-    .SetValueDeserializer(new AvroDeserializer<Order>(schemaRegistry).AsSyncOverAsync())
-    .Build();
+- **Avro:** Most compact, fastest, excellent for high-volume data
+- **JSON Schema:** More readable, easier to debug, familiar to most developers
+- **Protocol Buffers:** Strong typing, excellent for cross-language systems
 
-consumer.Subscribe("orders");
+All formats get the same benefits: versioning, validation, and compatibility checking.
 
-while (!cancellationToken.IsCancellationRequested)
-{
-    var consumeResult = consumer.Consume(cancellationToken);
-    
-    if (consumeResult.Message == null)
-        continue;
-    
-    // Automatically deserialized using schema from registry
-    var order = consumeResult.Message.Value;
-    Console.WriteLine($"Order: {order.order_id}, Amount: {order.amount}");
-}
-```
+## Performance Optimization
 
-### Schema Evolution
+**📚 Complete Example:** [04-performance-tuning →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/04-performance-tuning)
 
-**Backward Compatible (v2):**
+Making Kafka fast isn't about one magic setting—it's about understanding tradeoffs and tuning for your specific workload.
 
-```json
-{
-  "type": "record",
-  "name": "Order",
-  "namespace": "com.example.ecommerce",
-  "fields": [
-    {"name": "order_id", "type": "string"},
-    {"name": "customer_id", "type": "string"},
-    {"name": "amount", "type": "double"},
-    {"name": "currency", "type": "string", "default": "USD"},
-    {"name": "order_date", "type": "long", "logicalType": "timestamp-millis"},
-    {"name": "customer_email", "type": ["null", "string"], "default": null}
-  ]
-}
-```
+### Producer Optimization
 
-New field with default value - old consumers still work!
+**Batching:**
+Instead of sending each message individually, group many messages together. It's like carpooling—sending 100 messages in one network trip is much faster than 100 separate trips.
 
-**Compatibility Modes:**
+You control two settings:
+- **Batch size:** How big should the batch be? (e.g., 32KB)
+- **Wait time:** How long should we wait to fill the batch? (e.g., 10 milliseconds)
 
-```csharp
-using Confluent.SchemaRegistry;
+Larger batches mean better throughput but slightly higher latency.
 
-var schemaRegistryConfig = new SchemaRegistryConfig
-{
-    Url = "http://localhost:8081"
-};
-var schemaRegistry = new CachedSchemaRegistryClient(schemaRegistryConfig);
+**Compression:**
+Compress messages before sending to reduce network usage. Think of it like zipping files before emailing them.
 
-// Set compatibility mode
-await schemaRegistry.UpdateCompatibilityAsync(
-    "orders-value",
-    CompatibilityLevel.Backward
-);
+Options:
+- **None:** Fastest CPU, largest network usage
+- **Snappy/LZ4:** Very fast compression, good balance
+- **GZIP:** Slowest but best compression ratio
+- **ZSTD:** Modern option, great compression with reasonable speed
 
-// Compatibility modes:
-// - Backward: New schema can read old data
-// - Forward: Old schema can read new data
-// - Full: Both backward and forward compatible
-// - None: No compatibility checking
-```
+Choose based on whether your bottleneck is CPU or network bandwidth.
 
-## Performance Tuning
+**Pipelining:**
+Allow multiple requests "in flight" simultaneously. Instead of send-wait-send-wait, you do send-send-send...then collect all the acknowledgments together. This dramatically improves throughput on high-latency networks.
 
-### Producer Tuning
 
-```csharp
-var config = new ProducerConfig
-{
-    BootstrapServers = "localhost:9092",
-    
-    // Batching for throughput
-    BatchSize = 32768,      // 32KB batches
-    LingerMs = 10,          // Wait up to 10ms to fill batch
-    
-    // Compression
-    CompressionType = CompressionType.Snappy,  // Fast compression
-    // Options: CompressionType.Gzip, Snappy, Lz4, Zstd
-    
-    // Buffer size
-    MessageMaxBytes = 1000000,  // 1MB max message size
-    
-    // Network
-    MaxInFlight = 5,
-    
-    // Reliability
-    Acks = Acks.All,
-    Retries = 3
-};
+**Key Files:**
+- [TunedProducer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/04-performance-tuning/Producer/TunedProducer.cs) - Optimized producer
+- [BaselineProducer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/04-performance-tuning/Producer/BaselineProducer.cs) - Baseline for comparison
 
-var producer = new ProducerBuilder<string, string>(config).Build();
-```
+**Key Optimizations:**
+- `BatchSize = 32768` - 32KB batches
+- `LingerMs = 10` - Wait up to 10ms to fill batch
+- `CompressionType = CompressionType.Snappy` - Fast compression
+- `MaxInFlight = 5` - Allow concurrent requests
 
 **Compression Comparison:**
 
-```mermaid
-graph TB
-    subgraph "Compression Algorithms"
-        None[None<br/>1000 KB<br/>Ratio: 1.0<br/>Fast]
-        Snappy[Snappy<br/>400 KB<br/>Ratio: 2.5<br/>Very Fast]
-        LZ4[LZ4<br/>380 KB<br/>Ratio: 2.6<br/>Very Fast]
-        GZIP[GZIP<br/>300 KB<br/>Ratio: 3.3<br/>Slow]
-        ZSTD[ZSTD<br/>280 KB<br/>Ratio: 3.6<br/>Medium]
-    end
-    
-    Note[Choose based on:<br/>CPU vs Network tradeoff]
-    
-    style Snappy fill:#00b894
-    style LZ4 fill:#00b894
+| Algorithm | Speed       | Compression | Use Case                |
+|-----------|-------------|-------------|-------------------------|
+| None      | Fastest     | 1.0x        | Low bandwidth           |
+| Snappy    | Fast        | 2.5x        | **Recommended default** |
+| Lz4       | Very Fast   | 2.6x        | High throughput         |
+| Gzip      | Slow        | 3.3x        | High compression        |
+| Zstd      | Medium      | 3.6x        | Best compression        |
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/04-performance-tuning
+# Baseline (modify StartupObject to BaselineProducer)
+dotnet run --project Producer/Producer.csproj
+# Tuned (modify StartupObject to TunedProducer)
+dotnet run --project Producer/Producer.csproj
 ```
 
-### Consumer Tuning
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/04-performance-tuning/README.md) | [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/04-performance-tuning/HOW-TO-RUN.md)
 
-```csharp
-var config = new ConsumerConfig
-{
-    BootstrapServers = "localhost:9092",
-    GroupId = "order-processor",
-    
-    // Fetch settings
-    FetchMinBytes = 1024,           // Wait for 1KB minimum
-    FetchMaxWaitMs = 500,           // But no more than 500ms
-    MaxPartitionFetchBytes = 1048576,  // 1MB per partition
-    
-    // Processing
-    MaxPollRecords = 500,           // Fetch 500 records per poll
-    MaxPollIntervalMs = 300000,     // 5 minutes max processing time
-    
-    // Session management
-    SessionTimeoutMs = 10000,       // 10 second timeout
-    HeartbeatIntervalMs = 3000,     // Heartbeat every 3 seconds
-    
-    // Auto-commit
-    EnableAutoCommit = true,
-    AutoCommitIntervalMs = 5000
-};
 
-var consumer = new ConsumerBuilder<string, string>(config).Build();
-consumer.Subscribe("orders");
+### Consumer Optimization
+
+**Key Files:**
+- [ParallelConsumer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/04-performance-tuning/Consumer/ParallelConsumer.cs) - Parallel processing consumer
+
+**Key Optimizations:**
+- `FetchMinBytes = 1024` - Wait for 1KB minimum
+- `FetchMaxWaitMs = 500` - Max wait time
+- `MaxPollRecords = 500` - Fetch 500 records per poll
+- Parallel processing with `SemaphoreSlim` (max 10 concurrent workers)
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/04-performance-tuning
+dotnet run --project Consumer/Consumer.csproj
 ```
 
-### Parallel Processing
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/04-performance-tuning/README.md)
 
-```csharp
-using System.Collections.Concurrent;
 
-var consumer = new ConsumerBuilder<string, string>(config).Build();
-consumer.Subscribe("orders");
+**Batch Fetching:**
+Instead of reading messages one at a time, fetch a batch (e.g., 500 messages) in one go. This reduces network overhead.
 
-var semaphore = new SemaphoreSlim(10);  // Max 10 concurrent workers
-var tasks = new ConcurrentBag<Task>();
+**Prefetching:**
+While you're processing current messages, Kafka fetches the next batch in the background. When you finish processing, the next batch is already waiting—no delay.
 
-async Task ProcessMessageAsync(ConsumeResult<string, string> message)
-{
-    // Process message in thread pool
-    try
-    {
-        var order = JsonSerializer.Deserialize<Order>(message.Message.Value);
-        await ProcessOrderAsync(order);
-        return;
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Processing failed");
-    }
-}
+**Parallel Processing:**
+Process multiple messages simultaneously using thread pools. For example, fetch 500 messages, then process them using 10 worker threads in parallel. This keeps your CPU busy and maximizes throughput.
 
-while (!cancellationToken.IsCancellationRequested)
-{
-    var message = consumer.Consume(cancellationToken);
-    
-    // Limit concurrent processing
-    await semaphore.WaitAsync(cancellationToken);
-    
-    var task = Task.Run(async () =>
-    {
-        try
-        {
-            await ProcessMessageAsync(message);
-        }
-        finally
-        {
-            semaphore.Release();
-        }
-    }, cancellationToken);
-    
-    tasks.Add(task);
-    
-    // Don't wait - continue consuming
-}
+**Important:** Make sure your processing is idempotent if you're doing parallel processing, because crashes might cause some messages to be processed twice.
+
+### When to Tune What
+
+- **High latency network:** Increase batching and pipelining
+- **CPU bottleneck:** Disable compression or use faster algorithms
+- **Network bottleneck:** Enable compression (GZIP or ZSTD)
+- **Small messages:** Increase batch wait time to get fuller batches
+- **Large messages:** Reduce batch size to avoid timeouts
+
+The key is measuring your specific bottleneck before tuning. Don't just copy settings from blog posts—profile your actual workload.
+
+---
+
+Schema Registry is configured as part of the Kafka infrastructure setup. See:
+- [docker-compose.yml](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/docker-compose.yml) - Schema Registry configuration
+- [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/01-fundamentals/HOW-TO-RUN.md) - Setup instructions
+
+**Access Schema Registry:**
+- URL: http://localhost:8081
+- API: http://localhost:8081/subjects
+
+**💡 Schema Registry is automatically started with:**
+```bash
+./scripts/start-kafka.sh
 ```
 
-### Broker Tuning
-
-**server.properties:**
-
-```properties
-# Network threads
-num.network.threads=8
-
-# I/O threads
-num.io.threads=16
-
-# Replication
-replica.lag.time.max.ms=30000
-
-# Log settings
-log.segment.bytes=1073741824  # 1GB segments
-log.retention.hours=168  # 7 days
-
-# Compression
-compression.type=producer  # Use producer's compression
-
-# Flush settings (usually leave to OS)
-log.flush.interval.messages=10000
-log.flush.interval.ms=1000
-```
+**📖 Full Documentation:** [01-fundamentals/HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/01-fundamentals/HOW-TO-RUN.md)
 
 ## Security
 
 ### SSL Encryption
+
+**📚 Complete Example:** [05-security/SSL →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/05-security/SSL)
 
 **Generate certificates:**
 
@@ -1449,23 +755,50 @@ ssl.key.password=password
 ssl.truststore.location=/var/ssl/kafka.server.truststore.jks
 ssl.truststore.password=password
 ```
+**Key Files:**
+- [SslProducer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/SSL/SslProducer.cs) - SSL producer
+- [SslConsumer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/SSL/SslConsumer.cs) - SSL consumer
 
-**Producer/Consumer:**
+**Key Configuration:**
+- `SecurityProtocol = SecurityProtocol.Ssl`
+- `SslCaLocation = "/path/to/ca-cert"`
+- `SslCertificateLocation = "/path/to/client-cert"`
+- `SslKeyLocation = "/path/to/client-key"`
 
-```csharp
-var config = new ProducerConfig
-{
-    BootstrapServers = "localhost:9093",
-    SecurityProtocol = SecurityProtocol.Ssl,
-    SslCaLocation = "/path/to/ca-cert",
-    SslCertificateLocation = "/path/to/client-cert",
-    SslKeyLocation = "/path/to/client-key"
-};
+**⚠️ Note:** Requires broker-side SSL configuration. See [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/README.md) for setup instructions.
 
-var producer = new ProducerBuilder<string, string>(config).Build();
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/05-security
+dotnet run --project SSL/SSL.csproj
 ```
 
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/README.md) | [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/HOW-TO-RUN.md)
+
 ### SASL Authentication
+
+**📚 Complete Example:** [05-security/SASL →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/05-security/SASL)
+
+**Key Files:**
+- [SaslProducer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/SASL/SaslProducer.cs) - SASL producer
+- [SaslConsumer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/SASL/SaslConsumer.cs) - SASL consumer
+
+**Key Configuration:**
+- `SecurityProtocol = SecurityProtocol.SaslSsl`
+- `SaslMechanism = SaslMechanism.Plain`
+- `SaslUsername = "alice"`
+- `SaslPassword = "password"`
+
+**⚠️ Note:** Requires broker-side SASL configuration. See [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/README.md) for setup instructions.
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/05-security
+dotnet run --project SASL/SASL.csproj
+```
+
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/05-security/README.md)
 
 **Broker:**
 
@@ -1517,6 +850,12 @@ kafka-acls --bootstrap-server localhost:9092 \
 
 ## Multi-Datacenter Replication
 
+**📚 Complete Example:** [06-multi-dc-replication →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication)
+**What it demonstrates:**
+- MirrorMaker 2 concepts
+- Multi-datacenter replication patterns
+- Topic replication configuration
+
 ### MirrorMaker 2
 
 ```mermaid
@@ -1565,16 +904,45 @@ emit.checkpoints.enabled = true
 ```bash
 connect-mirror-maker.sh mm2.properties
 ```
+**Key Files:**
+- [Dc1Producer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication/Producer/Dc1Producer.cs) - Simulates DC1 producer
+- [Dc2Consumer.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication/Consumer/Dc2Consumer.cs) - Simulates DC2 consumer
+- [ReplicationDemo.cs](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication/Examples/ReplicationDemo.cs) - Concepts demo
+
+**MirrorMaker 2 Configuration:**
+
+See [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication/HOW-TO-RUN.md) for complete MirrorMaker 2 configuration example (`mm2.properties`).
+
+**💡 Try it yourself:**
+```bash
+cd examples/05-advanced-kafka/dotnet/06-multi-dc-replication
+dotnet run --project Producer/Producer.csproj
+dotnet run --project Consumer/Consumer.csproj
+```
+
+**⚠️ Note:** Full replication requires multiple Kafka clusters. This example demonstrates concepts with a single cluster.
+
+**📖 Full Documentation:** [README.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication/README.md) | [HOW-TO-RUN.md](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication/HOW-TO-RUN.md)
+
+---
 
 ## Key Takeaways
 
-✅ **Exactly-Once Semantics** - Guaranteed no duplicates with idempotence and transactions  
-✅ **Log Compaction** - Keep latest state per key indefinitely  
-✅ **Kafka Streams** - Build real-time processing apps with stateful operations  
-✅ **Schema Registry** - Manage schema evolution safely  
-✅ **Performance Tuning** - Optimize for your workload  
-✅ **Security** - SSL, SASL, ACLs for production  
-✅ **Multi-DC** - Replicate across datacenters  
+✅ **Exactly-Once Semantics** - Guaranteed no duplicates with idempotence and transactions - [Try Example →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/01-delivery-semantics/ExactlyOnce)
+
+✅ **Log Compaction** - Keep latest state per key indefinitely - [Try Example →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/02-log-compaction)
+
+✅ **Kafka Streams** - Build real-time processing apps with stateful operations - [Try Example →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/03-kafka-streams)
+
+✅ **Schema Registry** - Manage schema evolution safely - [See Setup →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/01-fundamentals)
+
+✅ **Performance Tuning** - Optimize for your workload - [Try Example →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/04-performance-tuning)
+
+✅ **Security** - SSL, SASL, ACLs for production - [Try Examples →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/05-security)
+
+✅ **Multi-DC** - Replicate across datacenters - [Try Example →](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/main/examples/05-advanced-kafka/dotnet/06-multi-dc-replication)
+
+**📚 Complete examples repository:** [kafka-event-driven-architecture →](https://github.com/tomakazoo/kafka-event-driven-architecture) 
 
 ## Next Steps
 
