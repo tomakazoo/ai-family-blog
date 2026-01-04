@@ -555,11 +555,11 @@ Here's how these patterns work together in a real system:
 
 ## Key Takeaways
 
-✅ **CQRS** separates models for optimal read/write performance—use when you have complex queries or need independent scaling
-✅ **Event Sourcing** stores history as events, enabling time travel and flexible model evolution—use for audit-heavy or complex domains
-✅ **Sagas** manage distributed transactions with compensating actions—use Choreography for loose coupling, Orchestration for control
-✅ **Outbox Pattern** guarantees atomic database writes and event publishing—use whenever you publish events
-✅ **Inbox Pattern** ensures exactly-once event processing—use in all consumers handling critical business logic
+1. ✅ **CQRS**: Separates models for optimal read/write performance—use when you have complex queries or need independent scaling.
+2. ✅ **Event Sourcing**: Stores history as events, enabling time travel and flexible model evolution—use for audit-heavy or complex domains.
+3. ✅ **Sagas**: Manage distributed transactions with compensating actions—use Choreography for loose coupling, Orchestration for control.
+4. ✅ **Outbox Pattern**: Guarantees atomic database writes and event publishing—use whenever you publish events.
+5. ✅ **Inbox Pattern**: Ensures exactly-once event processing—use in all consumers handling critical business logic.
 
 These aren't just academic patterns. They're battle-tested solutions to real problems in distributed systems. Understanding when and how to apply them separates production-ready systems from prototypes.
 
