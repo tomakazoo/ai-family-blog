@@ -1412,7 +1412,7 @@ Remember:
 - Document everything
 - Learn from incidents
 
-The full source code is available at: [GitHub Repository]
+The full source code is available at: [GitHub Repository](https://github.com/tomakazoo/kafka-event-driven-architecture)
 
 Good luck with your event-driven journey!
 
