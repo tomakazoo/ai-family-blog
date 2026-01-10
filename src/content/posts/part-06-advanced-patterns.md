@@ -197,6 +197,7 @@ graph LR
     style E4 fill:#00b894
 ```
 
+<a id="a-paradigm-shift-events-before-models"></a>
 ### A Paradigm Shift: Events Before Models
 
 Event Sourcing is not mainly about objects, aggregates, or persistence tricks. It is about treating software as a system that remembers its experiences as a stream of events, and only then builds whatever models it needs on top.
