@@ -113,16 +113,45 @@ Parts 3-4 + 5→7 | **Outcome:** Production operations and scaling expertise
 
 Eight progressive examples mirror your learning journey, from fundamentals to production operations:
 
-| Example | Difficulty | Description | Blog Parts |
-|---------|-----------|-------------|------------|
-| **01-fundamentals** | ⭐ Beginner | Basic producer/consumer patterns, message flow, Kafka UI exploration | Parts 1-3 |
-| **02-core-concepts** | ⭐⭐ Intermediate | Event-Carried State Transfer pattern, autonomous services, decoupled communication | Part 2 |
-| **03-producers** | ⭐⭐ Intermediate | Advanced producer patterns, configurations, batching, compression | Part 4 |
-| **04-build-e-commerce** | ⭐⭐⭐ Advanced | Complete e-commerce system with 4 microservices, event coordination, error handling | Part 4 |
-| **05-advanced-kafka** | ⭐⭐⭐⭐ Expert | Production Kafka concepts (6 sub-examples: exactly-once, compaction, streams, schema registry, security, replication) | Part 5 |
-| **06-event-sourcing** | ⭐⭐⭐⭐ Expert | Event sourcing with Kafka, state rebuilding, time travel, version tracking | Part 6 |
-| **06-saga** | ⭐⭐⭐⭐ Expert | Saga pattern with Choreography and Orchestration, compensating transactions | Part 6 |
-| **07-advanced-monitoring** | ⭐⭐⭐⭐ Expert | Full observability stack: Prometheus, Grafana, Jaeger, metrics, tracing, dashboards | Part 7 |
+### Example 1: Fundamentals ⭐ (Beginner)
+**What it covers:** Basic producer/consumer patterns, message flow, Kafka UI exploration  
+**Blog Parts:** Parts 1-3  
+**Path:** [`examples/01-fundamentals`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/01-fundamentals)
+
+### Example 2: Core Concepts ⭐⭐ (Intermediate)
+**What it covers:** Event-Carried State Transfer pattern, autonomous services, decoupled communication  
+**Blog Parts:** Part 2  
+**Path:** [`examples/02-core-concepts`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/02-core-concepts)
+
+### Example 3: Producers ⭐⭐ (Intermediate)
+**What it covers:** Advanced producer patterns, configurations, batching, compression  
+**Blog Parts:** Part 4  
+**Path:** [`examples/03-producers`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/03-producers)
+
+### Example 4: Build E-Commerce ⭐⭐⭐ (Advanced)
+**What it covers:** Complete e-commerce system with 4 microservices, event coordination, error handling  
+**Blog Parts:** Part 4  
+**Path:** [`examples/04-build-e-commerce`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/04-build-e-commerce)
+
+### Example 5: Advanced Kafka ⭐⭐⭐⭐ (Expert)
+**What it covers:** Production Kafka concepts with 6 sub-examples: exactly-once semantics, log compaction, Kafka Streams, Schema Registry, security (SSL/SASL/ACLs), multi-datacenter replication  
+**Blog Parts:** Part 5  
+**Path:** [`examples/05-advanced-kafka`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/05-advanced-kafka)
+
+### Example 6: Event Sourcing ⭐⭐⭐⭐ (Expert)
+**What it covers:** Event sourcing with Kafka, state rebuilding, time travel queries, version tracking  
+**Blog Parts:** Part 6  
+**Path:** [`examples/06-event-sourcing`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/06-event-sourcing)
+
+### Example 7: Saga Pattern ⭐⭐⭐⭐ (Expert)
+**What it covers:** Saga pattern with Choreography and Orchestration, compensating transactions  
+**Blog Parts:** Part 6  
+**Path:** [`examples/06-saga`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/06-saga)
+
+### Example 8: Advanced Monitoring ⭐⭐⭐⭐ (Expert)
+**What it covers:** Full observability stack: Prometheus, Grafana, Jaeger, metrics, tracing, dashboards  
+**Blog Parts:** Part 7  
+**Path:** [`examples/07-advanced-monitoring`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/07-advanced-monitoring)
 
 ### Quick Start
 
