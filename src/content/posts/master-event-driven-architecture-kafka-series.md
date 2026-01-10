@@ -123,11 +123,6 @@ Eight progressive examples mirror your learning journey, from fundamentals to pr
 **Blog Parts:** Part 2  
 **Path:** [`examples/02-core-concepts`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/02-core-concepts)
 
-### Example 3: Producers ⭐⭐ (Intermediate)
-**What it covers:** Advanced producer patterns, configurations, batching, compression  
-**Blog Parts:** Part 4  
-**Path:** [`examples/03-producers`](https://github.com/tomakazoo/kafka-event-driven-architecture/tree/release/examples/03-producers)
-
 ### Example 4: Build E-Commerce ⭐⭐⭐ (Advanced)
 **What it covers:** Complete e-commerce system with 4 microservices, event coordination, error handling  
 **Blog Parts:** Part 4  
