@@ -111,29 +111,38 @@ Parts 3-4 + 5→7 | **Outcome:** Production operations and scaling expertise
 
 ## 💻 Hands-On Examples
 
-Three progressive examples mirror your learning journey:
+Eight progressive examples mirror your learning journey, from fundamentals to production operations:
 
-### Example 1: Fundamentals ⭐
-Producer/consumer basics | 5 minutes | Parts 1-3
-
-### Example 2: E-Commerce System ⭐⭐
-4 microservices, event coordination | 15 minutes | Part 4
-
-### Example 3: Advanced Monitoring ⭐⭐⭐
-Full observability stack (Prometheus, Grafana, Jaeger) | 20 minutes | Parts 5-7
+| Example | Difficulty | Description | Blog Parts |
+|---------|-----------|-------------|------------|
+| **01-fundamentals** | ⭐ Beginner | Basic producer/consumer patterns, message flow, Kafka UI exploration | Parts 1-3 |
+| **02-core-concepts** | ⭐⭐ Intermediate | Event-Carried State Transfer pattern, autonomous services, decoupled communication | Part 2 |
+| **03-producers** | ⭐⭐ Intermediate | Advanced producer patterns, configurations, batching, compression | Part 4 |
+| **04-build-e-commerce** | ⭐⭐⭐ Advanced | Complete e-commerce system with 4 microservices, event coordination, error handling | Part 4 |
+| **05-advanced-kafka** | ⭐⭐⭐⭐ Expert | Production Kafka concepts (6 sub-examples: exactly-once, compaction, streams, schema registry, security, replication) | Part 5 |
+| **06-event-sourcing** | ⭐⭐⭐⭐ Expert | Event sourcing with Kafka, state rebuilding, time travel, version tracking | Part 6 |
+| **06-saga** | ⭐⭐⭐⭐ Expert | Saga pattern with Choreography and Orchestration, compensating transactions | Part 6 |
+| **07-advanced-monitoring** | ⭐⭐⭐⭐ Expert | Full observability stack: Prometheus, Grafana, Jaeger, metrics, tracing, dashboards | Part 7 |
 
 ### Quick Start
 
+All examples are ready to run with step-by-step guides:
+
 ```bash
-# Clone and run Example 1
+# Clone the repository
 git clone https://github.com/tomakazoo/kafka-event-driven-architecture.git
 cd kafka-event-driven-architecture
+
+# Start Kafka infrastructure
 ./scripts/start-kafka.sh
+./scripts/verify-docker.sh
+
+# Run Example 1: Fundamentals
 cd examples/01-fundamentals/dotnet
 dotnet run --project BasicProducer.csproj
 ```
 
-**[📖 Complete Examples Guide](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/EXAMPLES-GUIDE.md)** - Detailed setup, troubleshooting, and architecture for all examples
+**[📖 Complete Examples Guide](https://github.com/tomakazoo/kafka-event-driven-architecture/blob/release/EXAMPLES-GUIDE.md)** - Detailed setup instructions, troubleshooting, architecture diagrams, and quick reference for all 8 examples
 
 ### Learning Strategy
 Read the blog post → Run the corresponding example → Modify the code → Break things intentionally → Build your own version
