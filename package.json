@@ -16,7 +16,7 @@
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.483.0",
     "mermaid": "^11.12.1",
-    "next": "^15.5.7",
+    "next": "15.5.9",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-mermaid2": "^0.1.4",
