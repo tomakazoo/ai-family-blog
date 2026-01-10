@@ -810,33 +810,6 @@ Open http://localhost:8080 and navigate to Topics → my-topic → Messages to s
 
 ---
 
-## Getting Started: A Practical Roadmap
-
-### Phase 1: Start Small (Week 1-2)
-1. Identify one workflow in your system
-2. Set up a local Kafka instance
-3. Create one producer and one consumer
-4. Test with simple events
-
-### Phase 2: Add Complexity (Week 3-4)
-1. Add 2-3 more consumers
-2. Implement proper error handling
-3. Add monitoring and logging
-4. Test failure scenarios
-
-### Phase 3: Production Ready (Week 5-8)
-1. Set up proper Kafka cluster
-2. Implement schema versioning
-3. Add comprehensive monitoring
-4. Create runbooks for operations
-5. Load test the system
-
-### Phase 4: Scale and Optimize (Ongoing)
-1. Tune Kafka configuration
-2. Optimize consumer performance
-3. Add more event-driven workflows
-4. Refine based on learnings
-
 ## Next Steps
 
 In Part 2, we'll dive deep into event design:
