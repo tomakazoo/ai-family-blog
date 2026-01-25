@@ -77,7 +77,7 @@ These characteristics address core challenges for event-driven systems: handling
 The cost difference is dramatic: Processing events at scale with large language models is prohibitively expensive, whereas specialized Small Language Models (SLMs) offer **significant cost reductions—often 90%+ lower**—making them economically viable for high-volume event processing. For real-time data pipelines like Kafka, SLMs can classify and enrich events with **ultra-low latency**, with fine-tuned models showing substantial performance improvements over general-purpose LLMs while maintaining or exceeding accuracy for specific tasks.
 
 
-## The Perfect Match: SLMs + Event-Driven Architecture
+## Part 2: The Perfect Match - SLMs + Event-Driven Architecture
 
 Think about the typical challenges in event-driven systems:
 
@@ -89,7 +89,7 @@ Think about the typical challenges in event-driven systems:
 
 **Edge Deployment**: Process sensitive events locally without cloud egress, reduce network latency, and meet compliance requirements—all because SLMs run on standard hardware.
 
-## Multi-Agent Architecture: Kafka Meets Specialized AI
+## Part 3: Multi-Agent Architecture: Kafka Meets Specialized AI
 
 Gartner's prediction of multi-agent systems maps perfectly to Kafka's event-driven paradigm. Here's how it works in practice:
 
