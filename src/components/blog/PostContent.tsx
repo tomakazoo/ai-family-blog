@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { Post } from '@/lib/posts';
 import { PostSeries } from '@/lib/postOrganization';
 import { SeriesNavigation } from './SeriesNavigation';
+import { LeaveMessage } from './LeaveMessage';
 import '@/styles/markdown.css';
 import { useState, useEffect, useRef } from 'react';
 import mermaid from 'mermaid';
@@ -110,6 +111,8 @@ export function PostContent({ post, series }: PostContentProps) {
           className="markdown-body"
           dangerouslySetInnerHTML={{ __html: content }} 
         />
+
+        <LeaveMessage postTitle={post.title} postSlug={slug} />
       </div>
     </div>
   );

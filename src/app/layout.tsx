@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import { Github, Linkedin, Twitter } from "lucide-react";
+import { LeaveMessage } from "@/components/blog/LeaveMessage";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -61,6 +62,9 @@ export default function RootLayout({
                     <span className="sr-only">LinkedIn</span>
                   </a>
                 </div>
+              </div>
+              <div className="mt-8 max-w-2xl">
+                <LeaveMessage variant="compact" />
               </div>
               <div className="mt-4 text-center md:text-left text-xs text-muted-foreground">
                 &copy; {new Date().getFullYear()} AI & Family. All rights reserved.
